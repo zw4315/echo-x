@@ -74,6 +74,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // 自动提取当前页面
   extractPost();
+  
+  // 监听 URL 变化（X 是 SPA，点击回复时 URL 会变化）
+  setupUrlChangeListener();
 });
 
 // 更新缓存统计显示
@@ -297,10 +300,42 @@ function showSettings(show: boolean) {
   }
 }
 
+// 监听 URL 变化
+let lastExtractedUrl: string | null = null;
+
+function setupUrlChangeListener() {
+  // 方法1: 监听标签页更新
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    if (changeInfo.url && tab.active && tab.url?.includes('/status/')) {
+      console.log('[Echo-X] Tab URL changed:', changeInfo.url);
+      // URL 变化时自动重新提取
+      setTimeout(() => extractPost(), 500); // 稍等片刻让页面加载
+    }
+  });
+  
+  // 方法2: 监听标签页切换
+  chrome.tabs.onActivated.addListener(() => {
+    setTimeout(() => extractPost(), 300);
+  });
+  
+  // 方法3: 定期检查（备用）
+  setInterval(async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.url?.includes('/status/') && tab.url !== lastExtractedUrl) {
+        console.log('[Echo-X] URL changed (poll):', tab.url);
+        extractPost();
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+  }, 2000); // 每 2 秒检查一次
+  
+  console.log('[Echo-X] URL change listener setup complete');
+}
+
 // 提取帖子
 async function extractPost() {
-  updateDebug('', '提取中...');
-  
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
@@ -317,6 +352,15 @@ async function extractPost() {
       return;
     }
     
+    // 现在有了 URL 才更新调试信息
+    updateDebug(url, '提取中...');
+    
+    // 清空之前的 AI 分析内容，避免显示旧内容
+    clearAnalysis();
+    
+    // 记录当前提取的 URL
+    lastExtractedUrl = url;
+    
     if (!tab.id) {
       updateDebug(url, '错误', '无法获取标签页ID');
       return;
@@ -329,11 +373,28 @@ async function extractPost() {
   }
 }
 
-// 直接执行提取代码
+// 尝试通过 content script 提取
 async function injectAndExtract(tabId: number, url: string) {
   try {
     updateDebug(url, '提取中...');
     
+    // 首先尝试发送消息给 content script
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_CURRENT_POST' });
+      console.log('[Echo-X] Content script response:', response);
+      
+      if (response && response.success && response.data) {
+        showPost(response.data);
+        return;
+      } else if (response && !response.success) {
+        updateDebug(url, '提取失败', response.error);
+        return;
+      }
+    } catch (msgError) {
+      console.log('[Echo-X] Content script not loaded, falling back to executeScript');
+    }
+    
+    // 如果 content script 没有响应，使用 executeScript 作为后备
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: (pageUrl: string) => {
@@ -343,7 +404,28 @@ async function injectAndExtract(tabId: number, url: string) {
             return { success: false, error: 'No articles found' };
           }
           
-          const article = articles[0];
+          // 从 URL 提取 status ID
+          const statusMatch = pageUrl.match(/\/status\/(\d+)/);
+          const statusId = statusMatch ? statusMatch[1] : null;
+          
+          // 找到匹配的 article
+          let article = articles[0]; // 默认第一个
+          
+          if (statusId) {
+            for (const art of articles) {
+              const links = art.querySelectorAll('a[href*="/status/"]');
+              for (const link of links) {
+                if (link.getAttribute('href')?.includes(statusId)) {
+                  article = art;
+                  break;
+                }
+              }
+            }
+          }
+          
+          // 判断是否是回复：检查是否有"回复给"的提示
+          const replyIndicator = document.querySelector('[data-testid="tweetReplyContext"], [aria-label*="回复"]');
+          const isReply = !!replyIndicator;
           
           // 提取作者
           const authorLink = article.querySelector('a[role="link"][href^="/"]') as HTMLAnchorElement | null;
@@ -376,6 +458,7 @@ async function injectAndExtract(tabId: number, url: string) {
             success: true,
             data: {
               url: pageUrl,
+              isReply,
               author: { handle, displayName },
               timestamp,
               text: text.trim()
@@ -405,6 +488,24 @@ async function injectAndExtract(tabId: number, url: string) {
   }
 }
 
+// 清空 AI 分析内容
+function clearAnalysis() {
+  const translationEl = document.getElementById('translationText');
+  if (translationEl) translationEl.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;padding:16px 0;">分析中...</div>';
+  
+  const tokenizationEl = document.getElementById('tokenization');
+  if (tokenizationEl) tokenizationEl.innerHTML = '';
+  
+  const vocabularyEl = document.getElementById('vocabulary');
+  if (vocabularyEl) vocabularyEl.innerHTML = '';
+  
+  const grammarEl = document.getElementById('grammar');
+  if (grammarEl) grammarEl.innerHTML = '';
+  
+  const suggestionsEl = document.getElementById('suggestions');
+  if (suggestionsEl) suggestionsEl.innerHTML = '';
+}
+
 // 显示帖子
 function showPost(data: any) {
   console.log('[Echo-X] Showing post:', data);
@@ -412,6 +513,15 @@ function showPost(data: any) {
   if (!data || !data.text) {
     updateDebug('', '错误', '没有文本内容');
     return;
+  }
+  
+  // 清空之前的 AI 分析内容
+  clearAnalysis();
+  
+  // 标记是原帖还是回复
+  const isReply = data.isReply;
+  if (isReply) {
+    console.log('[Echo-X] This is a REPLY, not the original post');
   }
   
   currentPost = data;
@@ -429,6 +539,12 @@ function showPost(data: any) {
   if (originalText) {
     originalText.innerHTML = '';
     
+    // 添加标签显示是原帖还是回复
+    const typeLabel = document.createElement('div');
+    typeLabel.style.cssText = 'font-size: 11px; color: var(--accent); margin-bottom: 8px; font-weight: 600;';
+    typeLabel.textContent = isReply ? '💬 回复内容' : '📝 原帖内容';
+    originalText.appendChild(typeLabel);
+    
     // 创建文本容器
     const textSpan = document.createElement('span');
     textSpan.textContent = data.text;
@@ -445,7 +561,7 @@ function showPost(data: any) {
   // 填充作者信息
   const authorEl = document.getElementById('authorInfo');
   if (authorEl && data.author) {
-    authorEl.textContent = `@${data.author.handle}`;
+    authorEl.textContent = (isReply ? '💬 @' : '📝 @') + data.author.handle;
   }
   
   updateDebug(data.author?.handle || '', '原文显示成功');
@@ -458,10 +574,10 @@ function showPost(data: any) {
   if (gatewayConnected) {
     if (!analyzer) {
       // 如果分析器未初始化，先初始化
-      initAnalyzerAndAnalyze(data.text, data.url || '');
+      initAnalyzerAndAnalyze(data.text, data.url || '', data.isReply || false);
     } else {
       // 分析器已存在，直接分析
-      analyzeText(data.text, data.url || '');
+      analyzeText(data.text, data.url || '', data.isReply || false);
     }
   } else {
     updateDebug('', '就绪', '请运行 ./setup.sh 启动本地网关');
@@ -469,15 +585,15 @@ function showPost(data: any) {
 }
 
 // 初始化分析器并分析
-async function initAnalyzerAndAnalyze(text: string, url: string) {
+async function initAnalyzerAndAnalyze(text: string, url: string, isReply: boolean = false) {
   const saved = await chrome.storage.local.get(['apiModel']);
   const selectedModel = saved.apiModel || availableModels[0] || 'kimi-2.5-coding';
   analyzer = new TextAnalyzer('local', 'kimi', selectedModel);
-  analyzeText(text, url);
+  analyzeText(text, url, isReply);
 }
 
 // AI 分析
-async function analyzeText(text: string, url: string) {
+async function analyzeText(text: string, url: string, isReply: boolean = false) {
   if (!analyzer || !gatewayConnected) {
     updateDebug('', '跳过分析', '本地网关未连接');
     return;
@@ -485,7 +601,7 @@ async function analyzeText(text: string, url: string) {
   
   // 检查缓存（除非强制刷新）
   if (!forceRefresh) {
-    const cached = await getCachedAnalysis(text);
+    const cached = await getCachedAnalysis(text, isReply);
     if (cached) {
       console.log('[Echo-X] Using cached analysis');
       
@@ -520,7 +636,7 @@ async function analyzeText(text: string, url: string) {
     
     // 保存到缓存
     const model = (await chrome.storage.local.get(['apiModel'])).apiModel || 'kimi-2.5-coding';
-    await saveCachedAnalysis(text, url, result, model);
+    await saveCachedAnalysis(text, url, result, model, isReply);
     
     updateDebug('', '✅ 分析完成', forceRefresh ? '(强制刷新已保存到缓存)' : '');
     updateCacheStats();
@@ -541,8 +657,8 @@ function showAnalysis(result: AnalysisResult) {
   const translationEl = document.getElementById('translationText');
   if (translationEl) {
     translationEl.innerHTML = `
-      <div style="color:var(--text-secondary);font-size:12px;margin-bottom:4px;">难度: ${result.difficulty}</div>
-      <div>${result.translation}</div>
+      <div style="color:var(--text-secondary);font-size:12px;margin-bottom:4px;">难度: ${escapeHtml(result.difficulty || '')}</div>
+      <div>${escapeHtml(result.translation || '')}</div>
     `;
   }
   
@@ -740,7 +856,7 @@ function showAnalysis(result: AnalysisResult) {
   const suggestionsEl = document.getElementById('suggestions');
   if (suggestionsEl && result.suggestions) {
     suggestionsEl.innerHTML = result.suggestions.map(s => `
-      <div class="suggestion-item">💡 ${s}</div>
+      <div class="suggestion-item">💡 ${escapeHtml(s)}</div>
     `).join('');
   }
 }

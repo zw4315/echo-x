@@ -13,6 +13,7 @@ export interface CacheEntry {
   result: any;           // 分析结果
   timestamp: number;     // 缓存时间
   model: string;         // 使用的模型
+  isReply?: boolean;     // 是否为回复
 }
 
 // 打开数据库
@@ -56,10 +57,11 @@ function hashContent(text: string): string {
 }
 
 // 获取缓存
-export async function getCachedAnalysis(text: string): Promise<CacheEntry | null> {
+export async function getCachedAnalysis(text: string, isReply: boolean = false): Promise<CacheEntry | null> {
   try {
     const db = await openDB();
-    const key = hashContent(text);
+    // 主帖和回复使用不同的缓存键
+    const key = hashContent(text) + (isReply ? ':reply' : '');
     
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -86,11 +88,13 @@ export async function saveCachedAnalysis(
   text: string,
   url: string,
   result: any,
-  model: string
+  model: string,
+  isReply: boolean = false
 ): Promise<void> {
   try {
     const db = await openDB();
-    const key = hashContent(text);
+    // 主帖和回复使用不同的缓存键
+    const key = hashContent(text) + (isReply ? ':reply' : '');
     
     const entry: CacheEntry = {
       key,
@@ -98,7 +102,8 @@ export async function saveCachedAnalysis(
       text: text.substring(0, 200),
       result,
       timestamp: Date.now(),
-      model
+      model,
+      isReply
     };
     
     return new Promise((resolve, reject) => {

@@ -130,7 +130,8 @@ export class TextAnalyzer {
           },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.3
+        temperature: 0.3,
+        stream: false  // 确保返回完整响应，不是流式
       })
     });
 
@@ -223,7 +224,8 @@ export class TextAnalyzer {
           { role: 'system', content: '你是专业的英语写作教练，擅长 proofreading 和给出建设性的语言改进建议。返回 JSON 格式。' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.3
+        temperature: 0.3,
+        stream: false
       })
     });
 
@@ -295,7 +297,8 @@ export class TextAnalyzer {
           { role: 'system', content: '你是专业的阅读助手，擅长理解文本内容并回答相关问题。返回 JSON 格式。' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.5
+        temperature: 0.5,
+        stream: false
       })
     });
 
@@ -372,7 +375,8 @@ export class TextAnalyzer {
           { role: 'system', content: '你是语言学习助手，擅长语法纠正和自然表达。' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.5
+        temperature: 0.5,
+        stream: false
       })
     });
 
