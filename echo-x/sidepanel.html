@@ -13,7 +13,7 @@
       <span id="authorInfo" style="color:var(--text-secondary);font-size:12px;"></span>
       <div class="header-actions">
         <button id="settingsBtn" class="icon-btn" title="设置 (Alt+S)">⚙️</button>
-        <button id="refreshBtn" class="refresh-btn" title="刷新">⟳</button>
+        <button id="refreshBtn" class="refresh-btn" title="刷新 (Shift+点击强制重新分析)">⟳</button>
       </div>
     </header>
 
@@ -81,29 +81,22 @@
         </div>
       </section>
 
-      <!-- 回复助手 -->
+      <!-- 互动区 -->
       <section class="section reply-section">
-        <div class="section-header">
-          <h2>💭 回复助手</h2>
-        </div>
-        
         <div class="reply-options">
-          <button class="reply-tone-btn active" data-tone="friendly">友好</button>
-          <button class="reply-tone-btn" data-tone="casual">随意</button>
-          <button class="reply-tone-btn" data-tone="formal">正式</button>
-          <button class="reply-tone-btn" data-tone="agree">赞同</button>
-          <button class="reply-tone-btn" data-tone="question">提问</button>
+          <button class="reply-mode-btn active" data-mode="rewrite">✍️ Rewrite</button>
+          <button class="reply-mode-btn" data-mode="qa">💬 Q&A</button>
         </div>
         
         <div class="reply-input-area">
           <textarea 
             id="replyInput" 
             class="reply-input" 
-            placeholder="输入你想回复的要点，AI会帮你润色..."
+            placeholder="输入你想表达的英文内容，AI会帮你 proofread..."
             rows="3"
           ></textarea>
           <div class="reply-actions">
-            <button id="generateReplyBtn" class="generate-btn">✨ 生成回复</button>
+            <button id="generateReplyBtn" class="generate-btn">✨ 生成</button>
           </div>
         </div>
         
@@ -142,6 +135,20 @@
         </div>
 
         <button id="saveSettings" class="primary-btn" style="display: none;">💾 保存设置</button>
+        
+        <!-- 缓存统计 -->
+        <div class="setting-item" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <label>📦 缓存统计</label>
+          <div id="cacheStats" style="color: var(--text-secondary); font-size: 13px; margin: 8px 0;">
+            加载中...
+          </div>
+          <p class="setting-hint">
+            相同帖子不会重复分析，节省 tokens
+          </p>
+          <button id="clearCacheBtn" class="secondary-btn" style="margin-top: 8px; font-size: 12px;">
+            🗑️ 清空缓存
+          </button>
+        </div>
         
         <!-- 刷新连接按钮 -->
         <button id="refreshConnectionBtn" class="secondary-btn" style="margin-top: 10px;">

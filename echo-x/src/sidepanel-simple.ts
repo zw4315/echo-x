@@ -2,6 +2,8 @@
 
 import { TextAnalyzer, AnalysisResult } from './analyzer.js';
 import { checkGatewayStatus, getModelDisplayName, getModelHint } from './api-validator.js';
+import { getCachedAnalysis, saveCachedAnalysis, clearCache, getCacheStats } from './cache.js';
+import { initTextSelection } from './text-selection.js';
 
 console.log('[Echo-X] Starting...');
 
@@ -10,24 +12,45 @@ let currentPost: any = null;
 let analyzer: TextAnalyzer | null = null;
 let gatewayConnected = false;
 let availableModels: string[] = [];
+let forceRefresh = false;  // 强制刷新标志
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[Echo-X] DOM ready');
   
   // 绑定按钮
-  document.getElementById('refreshBtn')?.addEventListener('click', extractPost);
+  document.getElementById('refreshBtn')?.addEventListener('click', (e) => {
+    // Shift+点击 = 强制刷新
+    if (e.shiftKey) {
+      forceRefresh = true;
+      updateDebug('', '强制刷新模式', '将重新分析并更新缓存');
+    }
+    extractPost();
+  });
   document.getElementById('settingsBtn')?.addEventListener('click', () => showSettings(true));
   document.getElementById('closeSettings')?.addEventListener('click', () => showSettings(false));
   document.getElementById('saveSettings')?.addEventListener('click', saveSettings);
   document.getElementById('generateReplyBtn')?.addEventListener('click', generateReply);
   document.getElementById('refreshConnectionBtn')?.addEventListener('click', checkGatewayAndInit);
+  document.getElementById('clearCacheBtn')?.addEventListener('click', handleClearCache);
   
-  // 语气选择
-  document.querySelectorAll('.reply-tone-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.reply-tone-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+  // 模式选择 (rewrite / qa)
+  document.querySelectorAll('.reply-mode-btn').forEach(btn => {
+    const button = btn as HTMLButtonElement;
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.reply-mode-btn').forEach(b => b.classList.remove('active'));
+      button.classList.add('active');
+      
+      // 更新 placeholder
+      const mode = button.dataset.mode;
+      const input = document.getElementById('replyInput') as HTMLTextAreaElement;
+      if (input) {
+        if (mode === 'rewrite') {
+          input.placeholder = '输入你想表达的英文内容，AI会帮你 proofread...';
+        } else {
+          input.placeholder = '输入你想问的问题，可以引用上文内容...';
+        }
+      }
     });
   });
   
@@ -40,12 +63,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
   
+  // 初始化文本选择引用功能
+  initTextSelection();
+  
   // 检测网关状态
   await checkGatewayAndInit();
   
   // 自动提取当前页面
   extractPost();
 });
+
+// 更新缓存统计显示
+async function updateCacheStats() {
+  const statsEl = document.getElementById('cacheStats');
+  if (!statsEl) return;
+  
+  const stats = await getCacheStats();
+  if (stats.count === 0) {
+    statsEl.innerHTML = '暂无缓存';
+  } else {
+    const oldest = stats.oldestTimestamp ? new Date(stats.oldestTimestamp).toLocaleDateString() : '-';
+    statsEl.innerHTML = `${stats.count} 条分析结果 (最早: ${oldest})`;
+  }
+}
+
+// 清空缓存
+async function handleClearCache() {
+  if (!confirm('确定要清空所有缓存的分析结果吗？')) {
+    return;
+  }
+  
+  await clearCache();
+  updateCacheStats();
+  updateDebug('', '缓存已清空');
+}
 
 // 检测网关并初始化
 async function checkGatewayAndInit() {
@@ -58,6 +109,9 @@ async function checkGatewayAndInit() {
     availableModels = result.models || ['kimi-2.5-coding'];
     
     updateDebug('', '✅ 网关已连接', `可用模型: ${availableModels.length} 个`);
+    
+    // 更新缓存统计
+    updateCacheStats();
     
     // 加载保存的模型设置
     const saved = await chrome.storage.local.get(['apiModel']);
@@ -72,7 +126,7 @@ async function checkGatewayAndInit() {
     
     // 如果有当前帖子，自动分析
     if (currentPost?.text) {
-      analyzeText(currentPost.text);
+      analyzeText(currentPost.text, currentPost.url || '');
     }
   } else {
     gatewayConnected = false;
@@ -150,7 +204,7 @@ async function saveSettings() {
   
   // 如果有当前帖子，重新分析
   if (currentPost?.text && analyzer) {
-    analyzeText(currentPost.text);
+    analyzeText(currentPost.text, currentPost.url || '');
   }
 }
 
@@ -206,7 +260,7 @@ async function injectAndExtract(tabId: number, url: string) {
     
     const results = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => {
+      func: (pageUrl: string) => {
         try {
           const articles = document.querySelectorAll('article');
           if (articles.length === 0) {
@@ -245,6 +299,7 @@ async function injectAndExtract(tabId: number, url: string) {
           return {
             success: true,
             data: {
+              url: pageUrl,
               author: { handle, displayName },
               timestamp,
               text: text.trim()
@@ -253,7 +308,8 @@ async function injectAndExtract(tabId: number, url: string) {
         } catch (e: any) {
           return { success: false, error: e.message };
         }
-      }
+      },
+      args: [url]
     });
     
     console.log('[Echo-X] Execute script results:', results);
@@ -306,17 +362,30 @@ function showPost(data: any) {
   
   // 如果网关已连接，自动分析
   if (analyzer && gatewayConnected) {
-    analyzeText(data.text);
+    analyzeText(data.text, data.url || '');
   } else if (!gatewayConnected) {
     updateDebug('', '就绪', '请运行 ./setup.sh 启动本地网关');
   }
 }
 
 // AI 分析
-async function analyzeText(text: string) {
+async function analyzeText(text: string, url: string) {
   if (!analyzer || !gatewayConnected) {
     updateDebug('', '跳过分析', '本地网关未连接');
     return;
+  }
+  
+  // 检查缓存（除非强制刷新）
+  if (!forceRefresh) {
+    const cached = await getCachedAnalysis(text);
+    if (cached) {
+      console.log('[Echo-X] Using cached analysis');
+      showAnalysis(cached.result);
+      const date = new Date(cached.timestamp).toLocaleString();
+      updateDebug('', `✅ 已加载缓存 (${date})  |  💡 Shift+刷新 强制重新分析`);
+      updateCacheStats();
+      return;
+    }
   }
   
   updateDebug('', 'AI 分析中...');
@@ -325,7 +394,13 @@ async function analyzeText(text: string) {
   try {
     const result = await analyzer.analyze(text, 'zh');
     showAnalysis(result);
-    updateDebug('', '✅ 分析完成');
+    
+    // 保存到缓存
+    const model = (await chrome.storage.local.get(['apiModel'])).apiModel || 'kimi-2.5-coding';
+    await saveCachedAnalysis(text, url, result, model);
+    
+    updateDebug('', '✅ 分析完成', forceRefresh ? '(强制刷新已保存到缓存)' : '');
+    updateCacheStats();
   } catch (e: any) {
     console.error('[Echo-X] Analysis error:', e);
     const errorMsg = e.message || '未知错误';
@@ -333,6 +408,7 @@ async function analyzeText(text: string) {
     showAnalysisError(errorMsg);
   } finally {
     showAnalysisLoading(false);
+    forceRefresh = false;  // 重置强制刷新标志
   }
 }
 
@@ -427,7 +503,7 @@ function showAnalysisError(error: string) {
   }
 }
 
-// 生成回复
+// 生成回复 (rewrite / qa 两种模式)
 async function generateReply() {
   if (!currentPost?.text) {
     updateDebug('', '错误', '没有帖子内容');
@@ -441,27 +517,37 @@ async function generateReply() {
   
   const inputEl = document.getElementById('replyInput') as HTMLTextAreaElement;
   if (!inputEl?.value.trim()) {
-    updateDebug('', '错误', '请输入回复内容');
+    updateDebug('', '错误', '请输入内容');
     return;
   }
   
-  const toneBtn = document.querySelector('.reply-tone-btn.active') as HTMLElement;
-  const tone = toneBtn?.dataset.tone || 'friendly';
+  const modeBtn = document.querySelector('.reply-mode-btn.active') as HTMLElement;
+  const mode = modeBtn?.dataset.mode || 'rewrite';
   
-  updateDebug('', '生成回复中...');
+  updateDebug('', mode === 'rewrite' ? 'Proofreading...' : '生成回答中...');
   showReplyLoading(true);
   
   try {
-    const result = await analyzer.generateReply(
-      currentPost.text,
-      inputEl.value,
-      tone,
-      'en'
-    );
+    let result;
     
-    showGeneratedReply(result);
+    if (mode === 'rewrite') {
+      // Rewrite 模式：proofread 用户的英文输入
+      result = await analyzer.rewriteProofread(
+        currentPost.text,
+        inputEl.value
+      );
+    } else {
+      // QA 模式：回答问题，可以引用上下文
+      result = await analyzer.answerQuestion(
+        currentPost.text,
+        inputEl.value,
+        currentPost.author?.handle || 'author'
+      );
+    }
+    
+    showGeneratedReply(result, mode);
     inputEl.value = '';
-    updateDebug('', '回复生成成功');
+    updateDebug('', mode === 'rewrite' ? '✅ Proofread 完成' : '✅ 回答已生成');
   } catch (e: any) {
     updateDebug('', '生成失败', e.message);
   } finally {
@@ -469,43 +555,73 @@ async function generateReply() {
   }
 }
 
-// 显示生成的回复
-function showGeneratedReply(result: any) {
+// 显示生成的回复 (rewrite 或 qa 模式)
+function showGeneratedReply(result: any, mode: string = 'rewrite') {
   const container = document.getElementById('generatedReplies');
   if (!container) return;
   
   const replyEl = document.createElement('div');
   replyEl.className = 'reply-item';
-  replyEl.innerHTML = `
-    <div class="reply-polished">${result.polishedReply}</div>
-    <div class="reply-translation">${result.translation}</div>
-    <div class="reply-explanation">${result.explanation}</div>
-    ${result.grammarCheck?.hasErrors ? `
-      <div class="reply-errors">
-        <div>⚠️ 语法问题：</div>
-        <ul>${result.grammarCheck.errors.map((e: string) => `<li>${e}</li>`).join('')}</ul>
+  
+  if (mode === 'rewrite') {
+    // Rewrite 模式：显示 proofread 结果和改进建议
+    replyEl.innerHTML = `
+      <div class="reply-section-title">📝 改进版本</div>
+      <div class="reply-polished">${result.improvedText || result.polishedReply}</div>
+      
+      ${result.issues?.length ? `
+        <div class="reply-section-title">⚠️ 发现的问题</div>
+        <div class="reply-issues">
+          ${result.issues.map((issue: any) => `
+            <div class="issue-item">
+              <div class="issue-original">❌ ${issue.original}</div>
+              <div class="issue-suggestion">✅ ${issue.suggestion}</div>
+              <div class="issue-explanation">💡 ${issue.explanation}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      
+      <div class="reply-section-title">📚 改进说明</div>
+      <div class="reply-explanation">${result.explanation}</div>
+      
+      <div class="reply-actions">
+        <button class="reply-copy-btn">📋 复制改进版本</button>
       </div>
-    ` : ''}
-    <div class="reply-actions">
-      <button class="reply-copy-btn">📋 复制</button>
-      <button class="reply-use-btn">✓ 使用</button>
-    </div>
-  `;
+    `;
+    
+    // 绑定复制按钮
+    replyEl.querySelector('.reply-copy-btn')?.addEventListener('click', () => {
+      const textToCopy = result.improvedText || result.polishedReply;
+      navigator.clipboard.writeText(textToCopy);
+      updateDebug('', '已复制改进版本');
+    });
+  } else {
+    // QA 模式：显示回答
+    replyEl.innerHTML = `
+      <div class="reply-section-title">💬 回答</div>
+      <div class="reply-answer">${result.answer}</div>
+      
+      ${result.references?.length ? `
+        <div class="reply-section-title">📖 参考引用</div>
+        <div class="reply-references">
+          ${result.references.map((ref: string) => `<div class="reference-item">• ${ref}</div>`).join('')}
+        </div>
+      ` : ''}
+      
+      <div class="reply-actions">
+        <button class="reply-copy-btn">📋 复制回答</button>
+      </div>
+    `;
+    
+    // 绑定复制按钮
+    replyEl.querySelector('.reply-copy-btn')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(result.answer);
+      updateDebug('', '已复制回答');
+    });
+  }
   
   container.insertBefore(replyEl, container.firstChild);
-  
-  // 绑定按钮
-  replyEl.querySelector('.reply-copy-btn')?.addEventListener('click', () => {
-    navigator.clipboard.writeText(result.polishedReply);
-    updateDebug('', '已复制');
-  });
-  
-  replyEl.querySelector('.reply-use-btn')?.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, { type: 'FILL_REPLY', text: result.polishedReply });
-    }
-  });
 }
 
 // 显示回复加载状态

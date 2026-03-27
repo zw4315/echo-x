@@ -471,6 +471,137 @@ body {
   border: 1px solid var(--border);
 }
 
+.reply-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 12px 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reply-section-title:first-child {
+  margin-top: 0;
+}
+
+.reply-answer {
+  color: var(--text-primary);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.reply-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.issue-item {
+  background: rgba(244, 33, 46, 0.05);
+  border-left: 3px solid var(--error);
+  padding: 8px 12px;
+  border-radius: 0 6px 6px 0;
+}
+
+.issue-original {
+  color: var(--error);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.issue-suggestion {
+  color: var(--success);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.issue-explanation {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.reply-references {
+  background: rgba(29, 155, 240, 0.05);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.reference-item {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.reply-mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.reply-mode-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.reply-mode-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* 文本选择引用弹出按钮 */
+.selection-popup {
+  position: fixed;
+  z-index: 10000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  transform: translateY(5px);
+}
+
+.selection-popup.show {
+  transform: translateY(0);
+}
+
+.selection-quote-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(29, 155, 240, 0.4);
+  transition: all 0.2s;
+}
+
+.selection-quote-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(29, 155, 240, 0.5);
+}
+
+.selection-quote-btn svg {
+  flex-shrink: 0;
+}
+
+/* 选中文本的高亮样式 */
+::selection {
+  background: rgba(29, 155, 240, 0.3);
+  color: var(--text-primary);
+}
+
 .reply-polished {
   font-size: 14px;
   line-height: 1.6;

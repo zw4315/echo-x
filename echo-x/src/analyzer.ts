@@ -155,7 +155,164 @@ export class TextAnalyzer {
   }
 
   /**
-   * 生成回复
+   * Rewrite 模式：proofread 用户的英文输入
+   */
+  async rewriteProofread(
+    originalPost: string,
+    userInput: string
+  ): Promise<{
+    improvedText: string;
+    originalText: string;
+    issues: Array<{
+      original: string;
+      suggestion: string;
+      explanation: string;
+      type: string;
+    }>;
+    explanation: string;
+  }> {
+    const prompt = `请对用户的英文输入进行 proofread，指出问题并给出改进建议。
+
+原帖内容：
+"""${originalPost}"""
+
+用户想表达的英文：
+"""${userInput}"""
+
+请返回 JSON 格式：
+{
+  "improvedText": "改进后的完整英文（保持原意但更地道）",
+  "originalText": "用户的原始输入",
+  "issues": [
+    {
+      "original": "有问题的原句或词汇",
+      "suggestion": "建议的改进写法",
+      "explanation": "为什么这样改（中文解释语法/用法问题）",
+      "type": "错误类型（grammar/vocabulary/style/tone）"
+    }
+  ],
+  "explanation": "总体评价和改进建议总结（中文）"
+}
+
+要求：
+1. 找出所有语法、词汇、搭配、语气问题
+2. 不仅指出错误，还要解释正确用法
+3. 给出更地道的表达方式
+4. 保持用户想表达的原意`;
+
+    const response = await fetch(`${GATEWAY_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer local'
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages: [
+          { role: 'system', content: '你是专业的英语写作教练，擅长 proofreading 和给出建设性的语言改进建议。返回 JSON 格式。' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('[Echo-X] JSON parse error:', e);
+    }
+    
+    // Fallback
+    return {
+      improvedText: userInput,
+      originalText: userInput,
+      issues: [],
+      explanation: content
+    };
+  }
+
+  /**
+   * QA 模式：回答用户关于帖子内容的问题
+   */
+  async answerQuestion(
+    originalPost: string,
+    question: string,
+    authorHandle: string
+  ): Promise<{
+    answer: string;
+    references: string[];
+  }> {
+    const prompt = `用户正在阅读 @${authorHandle} 的帖子，并对内容有疑问。请基于帖子内容回答问题。
+
+原帖内容：
+"""${originalPost}"""
+
+用户的问题：
+"""${question}"""
+
+请返回 JSON 格式：
+{
+  "answer": "详细回答用户的问题（用中文）",
+  "references": ["引用的原帖内容片段（如果有）"]
+}
+
+要求：
+1. 基于帖子内容回答，不要引入外部信息
+2. 如果问题与帖子无关，说明无法回答
+3. 可以引用帖子原文作为回答依据
+4. 用中文回答，方便用户理解`;
+
+    const response = await fetch(`${GATEWAY_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer local'
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages: [
+          { role: 'system', content: '你是专业的阅读助手，擅长理解文本内容并回答相关问题。返回 JSON 格式。' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.5
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('[Echo-X] JSON parse error:', e);
+    }
+    
+    // Fallback
+    return {
+      answer: content,
+      references: []
+    };
+  }
+
+  /**
+   * 生成回复 (保留用于兼容)
    */
   async generateReply(
     originalPost: string, 
