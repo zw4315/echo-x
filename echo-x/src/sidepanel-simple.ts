@@ -4,6 +4,8 @@ import { TextAnalyzer, AnalysisResult } from './analyzer.js';
 import { checkGatewayStatus, getModelDisplayName, getModelHint } from './api-validator.js';
 import { getCachedAnalysis, saveCachedAnalysis, clearCache, getCacheStats } from './cache.js';
 import { initTextSelection } from './text-selection.js';
+import { createSpeechButton, isSpeechSupported, setDetectedLanguage, getCurrentLanguage, updateAllSpeechButtonsLanguage } from './speech.js';
+import { saveQARecord, getQAHistoryByUrl, getQAStats, clearQAHistory, deleteQARecord, QARecord } from './qa-history.js';
 
 console.log('[Echo-X] Starting...');
 
@@ -33,6 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('generateReplyBtn')?.addEventListener('click', generateReply);
   document.getElementById('refreshConnectionBtn')?.addEventListener('click', checkGatewayAndInit);
   document.getElementById('clearCacheBtn')?.addEventListener('click', handleClearCache);
+  document.getElementById('clearQABtn')?.addEventListener('click', handleClearQAHistory);
   
   // 模式选择 (rewrite / qa)
   document.querySelectorAll('.reply-mode-btn').forEach(btn => {
@@ -87,6 +90,19 @@ async function updateCacheStats() {
   }
 }
 
+// 更新 Q&A 统计
+async function updateQAStats() {
+  const statsEl = document.getElementById('qaStats');
+  if (!statsEl) return;
+  
+  const stats = await getQAStats();
+  if (stats.totalCount === 0) {
+    statsEl.innerHTML = '暂无提问记录';
+  } else {
+    statsEl.innerHTML = `${stats.totalCount} 条提问 (${stats.postCount} 个帖子) · 今日 ${stats.todayCount} 条`;
+  }
+}
+
 // 清空缓存
 async function handleClearCache() {
   if (!confirm('确定要清空所有缓存的分析结果吗？')) {
@@ -96,6 +112,68 @@ async function handleClearCache() {
   await clearCache();
   updateCacheStats();
   updateDebug('', '缓存已清空');
+}
+
+// 清空 Q&A 历史
+async function handleClearQAHistory() {
+  if (!confirm('确定要清空所有 Q&A 历史记录吗？此操作不可恢复。')) {
+    return;
+  }
+  
+  await clearQAHistory();
+  updateQAStats();
+  await loadQAHistory();
+  updateDebug('', 'Q&A 历史已清空');
+}
+
+// 加载并显示当前帖子的 Q&A 历史
+async function loadQAHistory() {
+  if (!currentPost?.url) return;
+  
+  const history = await getQAHistoryByUrl(currentPost.url);
+  const container = document.getElementById('qaHistoryList');
+  const countEl = document.getElementById('qaHistoryCount');
+  
+  if (countEl) {
+    countEl.textContent = history.length > 0 ? `${history.length} 条` : '';
+  }
+  
+  if (!container) return;
+  
+  if (history.length === 0) {
+    container.innerHTML = '<div class="qa-history-empty">暂无提问记录</div>';
+    return;
+  }
+  
+  container.innerHTML = history.map((qa: QARecord) => `
+    <div class="qa-history-item" data-id="${qa.id}">
+      <div class="qa-history-question">❓ ${escapeHtml(qa.question)}</div>
+      <div class="qa-history-answer">💡 ${escapeHtml(qa.answer.substring(0, 100))}${qa.answer.length > 100 ? '...' : ''}</div>
+      <div class="qa-history-meta">
+        <span>${new Date(qa.timestamp).toLocaleDateString()}</span>
+        <button class="qa-delete-btn" data-id="${qa.id}" title="删除">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+  
+  // 绑定删除按钮
+  container.querySelectorAll('.qa-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = (btn as HTMLButtonElement).dataset.id;
+      if (id && confirm('确定删除这条记录吗？')) {
+        await deleteQARecord(id);
+        await loadQAHistory();
+      }
+    });
+  });
+}
+
+// HTML 转义
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // 检测网关并初始化
@@ -215,9 +293,10 @@ function showSettings(show: boolean) {
     panel.classList.toggle('hidden', !show);
   }
   
-  // 打开设置时重新检测网关
+  // 打开设置时重新检测网关和更新统计
   if (show) {
     checkGatewayAndInit();
+    updateQAStats();
   }
 }
 
@@ -348,9 +427,23 @@ function showPost(data: any) {
   const mainContent = document.getElementById('mainContent');
   if (mainContent) mainContent.classList.remove('hidden');
   
-  // 填充原文
+  // 填充原文（带朗读按钮）
   const originalText = document.getElementById('originalText');
-  if (originalText) originalText.textContent = data.text;
+  if (originalText) {
+    originalText.innerHTML = '';
+    
+    // 创建文本容器
+    const textSpan = document.createElement('span');
+    textSpan.textContent = data.text;
+    originalText.appendChild(textSpan);
+    
+    // 添加朗读按钮（如果支持）
+    if (isSpeechSupported()) {
+      const speechBtn = createSpeechButton(data.text, getCurrentLanguage());
+      speechBtn.classList.add('original-speech-btn');
+      originalText.appendChild(speechBtn);
+    }
+  }
   
   // 填充作者信息
   const authorEl = document.getElementById('authorInfo');
@@ -359,6 +452,9 @@ function showPost(data: any) {
   }
   
   updateDebug(data.author?.handle || '', '原文显示成功');
+  
+  // 加载当前帖子的 Q&A 历史
+  loadQAHistory();
   
   // 如果网关已连接，自动分析
   if (analyzer && gatewayConnected) {
@@ -380,6 +476,13 @@ async function analyzeText(text: string, url: string) {
     const cached = await getCachedAnalysis(text);
     if (cached) {
       console.log('[Echo-X] Using cached analysis');
+      
+      // 恢复检测到的语言
+      if (cached.result.detectedLanguage) {
+        setDetectedLanguage(cached.result.detectedLanguage);
+        updateAllSpeechButtonsLanguage(cached.result.detectedLanguage);
+      }
+      
       showAnalysis(cached.result);
       const date = new Date(cached.timestamp).toLocaleString();
       updateDebug('', `✅ 已加载缓存 (${date})  |  💡 Shift+刷新 强制重新分析`);
@@ -393,6 +496,14 @@ async function analyzeText(text: string, url: string) {
   
   try {
     const result = await analyzer.analyze(text, 'zh');
+    
+    // 设置检测到的语言（用于朗读）
+    if (result.detectedLanguage) {
+      setDetectedLanguage(result.detectedLanguage);
+      updateAllSpeechButtonsLanguage(result.detectedLanguage);
+      console.log('[Echo-X] Detected language:', result.detectedLanguage);
+    }
+    
     showAnalysis(result);
     
     // 保存到缓存
@@ -423,46 +534,194 @@ function showAnalysis(result: AnalysisResult) {
     `;
   }
   
-  // 分词
+  // 分词（带朗读按钮）
   const tokenizationEl = document.getElementById('tokenization');
   if (tokenizationEl && result.tokens) {
-    tokenizationEl.innerHTML = result.tokens.map(t => `
-      <div class="token">
-        <span class="token-word">${t.word}</span>
-        ${t.reading ? `<span class="token-reading">${t.reading}</span>` : ''}
-        <span class="token-pos">${t.pos}</span>
-        <span class="token-meaning">${t.meaning}</span>
-      </div>
-    `).join('');
+    tokenizationEl.innerHTML = '';
+    
+    result.tokens.forEach(t => {
+      const tokenDiv = document.createElement('div');
+      tokenDiv.className = 'token';
+      
+      // 单词和朗读按钮容器
+      const wordContainer = document.createElement('div');
+      wordContainer.className = 'token-word-container';
+      
+      const wordSpan = document.createElement('span');
+      wordSpan.className = 'token-word';
+      wordSpan.textContent = t.word;
+      wordContainer.appendChild(wordSpan);
+      
+      // 添加朗读按钮（如果支持）- 使用检测到的语言
+      if (isSpeechSupported()) {
+        const speechBtn = createSpeechButton(t.word, getCurrentLanguage());
+        speechBtn.classList.add('token-speech-btn');
+        wordContainer.appendChild(speechBtn);
+      }
+      
+      tokenDiv.appendChild(wordContainer);
+      
+      // 其他信息
+      if (t.reading) {
+        const readingSpan = document.createElement('span');
+        readingSpan.className = 'token-reading';
+        readingSpan.textContent = t.reading;
+        tokenDiv.appendChild(readingSpan);
+      }
+      
+      const posSpan = document.createElement('span');
+      posSpan.className = 'token-pos';
+      posSpan.textContent = t.pos;
+      tokenDiv.appendChild(posSpan);
+      
+      const meaningSpan = document.createElement('span');
+      meaningSpan.className = 'token-meaning';
+      meaningSpan.textContent = t.meaning;
+      tokenDiv.appendChild(meaningSpan);
+      
+      tokenizationEl.appendChild(tokenDiv);
+    });
   }
   
-  // 生词
+  // 生词（带朗读按钮）
   const vocabularyEl = document.getElementById('vocabulary');
   const vocabCount = document.getElementById('vocabCount');
   if (vocabularyEl && result.vocabulary) {
     if (vocabCount) vocabCount.textContent = String(result.vocabulary.length);
-    vocabularyEl.innerHTML = result.vocabulary.map(v => `
-      <div class="vocab-item">
-        <div>
-          <span class="vocab-word">${v.word}</span>
-          <span class="vocab-level ${getLevelClass(v.level)}">${v.level}</span>
-        </div>
-        <div class="vocab-meaning">${v.meaning}</div>
-        <div class="vocab-example">${v.example}</div>
-      </div>
-    `).join('');
+    vocabularyEl.innerHTML = '';
+    
+    result.vocabulary.forEach(v => {
+      const vocabDiv = document.createElement('div');
+      vocabDiv.className = 'vocab-item';
+      
+      // 单词和朗读按钮
+      const wordDiv = document.createElement('div');
+      wordDiv.className = 'vocab-word-container';
+      
+      const wordSpan = document.createElement('span');
+      wordSpan.className = 'vocab-word';
+      wordSpan.textContent = v.word;
+      wordDiv.appendChild(wordSpan);
+      
+      // 朗读按钮
+      if (isSpeechSupported()) {
+        const speechBtn = createSpeechButton(v.word, getCurrentLanguage());
+        speechBtn.classList.add('vocab-speech-btn');
+        wordDiv.appendChild(speechBtn);
+      }
+      
+      const levelSpan = document.createElement('span');
+      levelSpan.className = `vocab-level ${getLevelClass(v.level)}`;
+      levelSpan.textContent = v.level;
+      wordDiv.appendChild(levelSpan);
+      
+      vocabDiv.appendChild(wordDiv);
+      
+      // 释义
+      const meaningDiv = document.createElement('div');
+      meaningDiv.className = 'vocab-meaning';
+      meaningDiv.textContent = v.meaning;
+      vocabDiv.appendChild(meaningDiv);
+      
+      // 例句（带汉字注音、翻译和朗读）
+      const exampleDiv = document.createElement('div');
+      exampleDiv.className = 'vocab-example';
+      
+      // 例句原文（汉字带注音）和朗读按钮
+      const exampleTextRow = document.createElement('div');
+      exampleTextRow.className = 'vocab-example-text';
+      
+      // 如果有读音标注，显示带注音的格式
+      if (v.exampleReading) {
+        // 使用ルビ形式显示（汉字上方标注读音）
+        const rubyContainer = document.createElement('span');
+        rubyContainer.className = 'vocab-ruby-text';
+        rubyContainer.innerHTML = renderRubyText(v.example, v.exampleReading);
+        exampleTextRow.appendChild(rubyContainer);
+      } else {
+        const exampleText = document.createElement('span');
+        exampleText.textContent = v.example;
+        exampleTextRow.appendChild(exampleText);
+      }
+      
+      if (isSpeechSupported() && v.example) {
+        const exampleSpeechBtn = createSpeechButton(v.example, getCurrentLanguage());
+        exampleSpeechBtn.classList.add('example-speech-btn');
+        exampleTextRow.appendChild(exampleSpeechBtn);
+      }
+      
+      exampleDiv.appendChild(exampleTextRow);
+      
+      // 中文翻译
+      if (v.exampleTranslation) {
+        const translationDiv = document.createElement('div');
+        translationDiv.className = 'vocab-example-translation';
+        translationDiv.textContent = v.exampleTranslation;
+        exampleDiv.appendChild(translationDiv);
+      }
+      
+      vocabDiv.appendChild(exampleDiv);
+      vocabularyEl.appendChild(vocabDiv);
+    });
   }
   
-  // 语法
+  // 语法（带朗读按钮和平假名注音）
   const grammarEl = document.getElementById('grammar');
   if (grammarEl && result.grammar) {
-    grammarEl.innerHTML = result.grammar.map(g => `
-      <div class="grammar-item">
-        <div class="grammar-pattern">${g.pattern}</div>
-        <div class="grammar-explanation">${g.explanation}</div>
-        <div class="grammar-example">${g.example}</div>
-      </div>
-    `).join('');
+    grammarEl.innerHTML = '';
+    
+    result.grammar.forEach(g => {
+      const grammarDiv = document.createElement('div');
+      grammarDiv.className = 'grammar-item';
+      
+      // 语法结构
+      const patternDiv = document.createElement('div');
+      patternDiv.className = 'grammar-pattern';
+      patternDiv.textContent = g.pattern;
+      
+      // 语法结构朗读按钮
+      if (isSpeechSupported()) {
+        const patternSpeechBtn = createSpeechButton(g.pattern, getCurrentLanguage());
+        patternSpeechBtn.classList.add('grammar-speech-btn');
+        patternDiv.appendChild(patternSpeechBtn);
+      }
+      
+      grammarDiv.appendChild(patternDiv);
+      
+      // 解释
+      const explanationDiv = document.createElement('div');
+      explanationDiv.className = 'grammar-explanation';
+      explanationDiv.textContent = g.explanation;
+      grammarDiv.appendChild(explanationDiv);
+      
+      // 例句（带平假名注音和朗读）
+      const exampleDiv = document.createElement('div');
+      exampleDiv.className = 'grammar-example';
+      
+      // 例句原文（汉字带注音）
+      if (g.exampleReading) {
+        // 使用ルビ形式显示
+        const rubyContainer = document.createElement('span');
+        rubyContainer.className = 'grammar-ruby-text';
+        rubyContainer.innerHTML = renderRubyText(g.example, g.exampleReading);
+        exampleDiv.appendChild(rubyContainer);
+      } else {
+        const exampleText = document.createElement('span');
+        exampleText.className = 'grammar-example-text';
+        exampleText.textContent = g.example;
+        exampleDiv.appendChild(exampleText);
+      }
+      
+      // 例句朗读按钮
+      if (isSpeechSupported() && g.example) {
+        const exampleSpeechBtn = createSpeechButton(g.example, getCurrentLanguage());
+        exampleSpeechBtn.classList.add('example-speech-btn');
+        exampleDiv.appendChild(exampleSpeechBtn);
+      }
+      
+      grammarDiv.appendChild(exampleDiv);
+      grammarEl.appendChild(grammarDiv);
+    });
   }
   
   // 建议
@@ -472,6 +731,35 @@ function showAnalysis(result: AnalysisResult) {
       <div class="suggestion-item">💡 ${s}</div>
     `).join('');
   }
+}
+
+// 渲染带注音的文本（Ruby 标注）
+function renderRubyText(text: string, reading: string): string {
+  // 如果 reading 是简单的注音列表（如 "にほんご:日本語,べんきょう:勉強"）
+  // 或者是完整的注音文本，我们尝试智能匹配
+  
+  // 简单处理：如果 reading 包含冒号，说明是 key:value 格式
+  if (reading.includes(':') || reading.includes('：')) {
+    let result = text;
+    // 解析注音对
+    const pairs = reading.split(/[,，]/);
+    pairs.forEach(pair => {
+      const [kanji, yomi] = pair.split(/[:：]/);
+      if (kanji && yomi) {
+        const kanjiTrimmed = kanji.trim();
+        const yomiTrimmed = yomi.trim();
+        // 替换文本中的汉字为 ruby 标注
+        result = result.replace(
+          kanjiTrimmed,
+          `<ruby>${kanjiTrimmed}<rt>${yomiTrimmed}</rt></ruby>`
+        );
+      }
+    });
+    return result;
+  }
+  
+  // 如果不是 key:value 格式，直接显示原文
+  return text;
 }
 
 // 获取等级样式
@@ -543,6 +831,25 @@ async function generateReply() {
         inputEl.value,
         currentPost.author?.handle || 'author'
       );
+      
+      // 保存到 Q&A 历史（不受强制刷新影响）
+      try {
+        const model = (await chrome.storage.local.get(['apiModel'])).apiModel || 'kimi-2.5-coding';
+        await saveQARecord({
+          postUrl: currentPost.url || window.location.href,
+          postText: currentPost.text.substring(0, 200),
+          question: inputEl.value,
+          answer: result.answer,
+          references: result.references,
+          model
+        });
+        console.log('[Echo-X] QA saved to history');
+        
+        // 刷新 QA 历史显示
+        await loadQAHistory();
+      } catch (e) {
+        console.error('[Echo-X] Failed to save QA:', e);
+      }
     }
     
     showGeneratedReply(result, mode);

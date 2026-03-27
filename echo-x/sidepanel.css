@@ -533,6 +533,274 @@ body {
   margin-bottom: 4px;
 }
 
+/* 朗读按钮 */
+.speech-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+.speech-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.speech-btn.speaking {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 原文朗读按钮 */
+.original-speech-btn {
+  width: 28px;
+  height: 28px;
+  margin-left: 12px;
+}
+
+/* 分词朗读按钮 */
+.token-word-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.token-speech-btn {
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.token:hover .token-speech-btn {
+  opacity: 1;
+}
+
+.token-speech-btn:hover {
+  opacity: 1 !important;
+}
+
+/* 重点词汇朗读按钮 */
+.vocab-word-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vocab-speech-btn {
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+}
+
+.vocab-item:hover .vocab-speech-btn {
+  opacity: 1;
+}
+
+.vocab-example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.vocab-example-reading {
+  color: var(--accent);
+  font-size: 13px;
+  font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 1.4;
+}
+
+.vocab-example-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vocab-example-translation {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* Q&A 历史 */
+.qa-history-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.qa-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.qa-history-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.qa-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.qa-history-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+.qa-history-item {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+
+.qa-history-item:hover {
+  border-color: var(--accent);
+}
+
+.qa-history-question {
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.qa-history-answer {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.qa-history-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.qa-delete-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.qa-delete-btn:hover {
+  opacity: 1;
+  background: rgba(244, 33, 46, 0.1);
+}
+
+.example-speech-btn {
+  width: 18px;
+  height: 18px;
+  opacity: 0.5;
+}
+
+.vocab-example:hover .example-speech-btn,
+.grammar-example:hover .example-speech-btn {
+  opacity: 1;
+}
+
+/* 语法部分 */
+.grammar-pattern {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grammar-speech-btn {
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+}
+
+.grammar-item:hover .grammar-speech-btn {
+  opacity: 1;
+}
+
+.grammar-example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.grammar-example-reading {
+  color: var(--accent);
+  font-size: 13px;
+  font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 1.4;
+}
+
+/* Ruby 标注样式（汉字上方注音） */
+.vocab-ruby-text,
+.grammar-ruby-text {
+  font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 2;
+}
+
+.vocab-ruby-text ruby,
+.grammar-ruby-text ruby {
+  ruby-align: center;
+}
+
+.vocab-ruby-text rt,
+.grammar-ruby-text rt {
+  font-size: 10px;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.grammar-example-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .reply-mode-btn {
   flex: 1;
   padding: 8px 12px;

@@ -7,6 +7,7 @@ export interface AnalysisResult {
   grammar: GrammarItem[];
   vocabulary: VocabItem[];
   suggestions: string[];
+  detectedLanguage?: string;  // ISO 639-1 语言代码
 }
 
 export interface TokenItem {
@@ -21,13 +22,16 @@ export interface GrammarItem {
   pattern: string;
   explanation: string;
   example: string;
+  exampleReading?: string;  // 日语平假名注音等
 }
 
 export interface VocabItem {
   word: string;
   level: string;
   meaning: string;
-  example: string;
+  example: string;           // 例句原文
+  exampleReading?: string;   // 例句读音标注（如日语平假名、中文拼音）
+  exampleTranslation?: string; // 例句中文翻译
 }
 
 const GATEWAY_URL = 'http://127.0.0.1:9742/v1';
@@ -67,6 +71,7 @@ export class TextAnalyzer {
 请返回 JSON 格式的分析结果：
 
 {
+  "detectedLanguage": "检测到的语言代码 (ja/en/ko/zh/es/fr/de/it 等 ISO 639-1 代码)",
   "translation": "翻译成中文的译文",
   "difficulty": "难度等级 (A1/A2/B1/B2/C1/C2 或 初级/中级/高级)",
   "tokens": [
@@ -74,7 +79,7 @@ export class TextAnalyzer {
       "word": "原文中的单词或词组",
       "pos": "词性 (名词/动词/形容词/副词/介词/连词等)",
       "lemma": "原形 (如果是变形后的单词，提供原形)",
-      "reading": "读音或假名 (如果是日语/韩语)",
+      "reading": "读音或假名 (如果是日语/韩语/中文拼音)",
       "meaning": "中文意思"
     }
   ],
@@ -82,7 +87,8 @@ export class TextAnalyzer {
     {
       "pattern": "语法点名称",
       "explanation": "详细解释这个语法点的用法",
-      "example": "一个使用这个语法点的例句"
+      "example": "例句（原文）",
+      "exampleReading": "例句中汉字/难词的注音（只标注需要注音的字词，如日语汉字标平假名，不重复标注已标注过的字）"
     }
   ],
   "vocabulary": [
@@ -90,7 +96,9 @@ export class TextAnalyzer {
       "word": "重点词汇",
       "level": "难度等级 (N5/N4/N3/N2/N1 或 basic/intermediate/advanced)",
       "meaning": "中文释义",
-      "example": "使用这个单词的例句"
+      "example": "例句原文",
+      "exampleReading": "例句中汉字/难词的注音（只标注需要注音的字词，如日语汉字标平假名，不重复标注已标注过的字）",
+      "exampleTranslation": "例句的中文翻译"
     }
   ],
   "suggestions": [
@@ -99,11 +107,13 @@ export class TextAnalyzer {
 }
 
 注意事项：
-1. tokenization 要对文本进行合理的分词，展示每个词的信息
-2. grammar 要提取 2-3 个重要的语法点
-3. vocabulary 选择 3-5 个重点词汇
-4. 所有解释用中文
-5. 如果是英语文本，注意时态、语态、从句等语法点`;
+1. detectedLanguage 必须填写 ISO 639-1 语言代码 (ja=日语, en=英语, ko=韩语, zh=中文, es=西班牙语, fr=法语, de=德语, it=意大利语, ru=俄语, pt=葡萄牙语 等)
+2. tokenization 要对文本进行合理的分词，展示每个词的信息
+3. grammar 要提取 2-3 个重要的语法点
+4. vocabulary 选择 3-5 个重点词汇
+5. 所有解释用中文
+6. 如果是日语/韩语，提供假名/读音
+7. 如果是中文，可以提供拼音`;
 
     const response = await fetch(`${GATEWAY_URL}/chat/completions`, {
       method: 'POST',
@@ -150,7 +160,8 @@ export class TextAnalyzer {
       tokens: [],
       grammar: [],
       vocabulary: [],
-      suggestions: []
+      suggestions: [],
+      detectedLanguage: 'en'
     };
   }
 

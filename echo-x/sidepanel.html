@@ -101,6 +101,17 @@
         </div>
         
         <div id="generatedReplies" class="generated-replies"></div>
+        
+        <!-- Q&A 历史 -->
+        <div id="qaHistorySection" class="qa-history-section">
+          <div class="qa-history-header">
+            <span>📚 提问历史</span>
+            <span id="qaHistoryCount" class="qa-history-count"></span>
+          </div>
+          <div id="qaHistoryList" class="qa-history-list">
+            <div class="qa-history-empty">暂无提问记录</div>
+          </div>
+        </div>
       </section>
 
       <div class="bottom-spacer"></div>
@@ -147,6 +158,20 @@
           </p>
           <button id="clearCacheBtn" class="secondary-btn" style="margin-top: 8px; font-size: 12px;">
             🗑️ 清空缓存
+          </button>
+        </div>
+        
+        <!-- Q&A 历史统计 -->
+        <div class="setting-item" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <label>📚 Q&A 历史</label>
+          <div id="qaStats" style="color: var(--text-secondary); font-size: 13px; margin: 8px 0;">
+            加载中...
+          </div>
+          <p class="setting-hint">
+            所有提问记录都会保存，可用于复习
+          </p>
+          <button id="clearQABtn" class="secondary-btn" style="margin-top: 8px; font-size: 12px;">
+            🗑️ 清空 Q&A 历史
           </button>
         </div>
         

@@ -115,32 +115,32 @@ function hideSelectionPopup() {
   selectionPopup.classList.remove('show');
 }
 
-// 引用选中的文本
+// 引用选中的文本 - 自动切换到 QA 模式
 function quoteSelectedText() {
   if (!lastSelectedText) return;
   
   const input = document.getElementById('replyInput') as HTMLTextAreaElement;
   if (!input) return;
   
+  // 自动切换到 QA 模式
+  const qaBtn = document.querySelector('.reply-mode-btn[data-mode="qa"]') as HTMLButtonElement;
+  if (qaBtn) {
+    // 移除其他按钮的激活状态
+    document.querySelectorAll('.reply-mode-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    // 激活 QA 按钮
+    qaBtn.classList.add('active');
+    
+    // 更新 placeholder
+    input.placeholder = '针对这段内容，你想了解什么？';
+  }
+  
   // 获取当前输入框内容
   const currentValue = input.value;
   
-  // 判断当前模式
-  const modeBtn = document.querySelector('.reply-mode-btn.active') as HTMLButtonElement;
-  const mode = modeBtn?.dataset.mode || 'rewrite';
-  
-  // 格式化引用文本
-  let quoteText = '';
-  if (mode === 'qa') {
-    // Q&A 模式：使用引用格式
-    quoteText = `> "${lastSelectedText}"\n\n`;
-    if (!currentValue) {
-      input.placeholder = '针对这段内容，你想了解什么？';
-    }
-  } else {
-    // Rewrite 模式：提示用户想表达的意思
-    quoteText = `参考这段内容："${lastSelectedText}"\n我想表达：\n`;
-  }
+  // 格式化引用文本（QA 模式格式）
+  let quoteText = `> "${lastSelectedText}"\n\n`;
   
   // 插入到输入框
   if (currentValue) {
@@ -156,7 +156,7 @@ function quoteSelectedText() {
   // 触发输入事件（如果有监听）
   input.dispatchEvent(new Event('input'));
   
-  console.log('[Echo-X] Quoted text:', lastSelectedText.substring(0, 50) + '...');
+  console.log('[Echo-X] Quoted text (QA mode):', lastSelectedText.substring(0, 50) + '...');
 }
 
 // 清除选择
