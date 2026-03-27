@@ -1,0 +1,29 @@
+{
+  "name": "echo-x",
+  "version": "1.0.0",
+  "description": "在 X (Twitter) 上学习语言的浏览器扩展",
+  "type": "module",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "npm run clean && tsc && npm run copy-assets",
+    "clean": "rm -rf dist/*",
+    "copy-assets": "cp -r icons dist/ && cp sidepanel.html dist/ && cp sidepanel.css dist/ && cp manifest.json dist/",
+    "lint": "eslint src/**/*.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "language-learning",
+    "twitter",
+    "x",
+    "browser-extension",
+    "typescript"
+  ],
+  "license": "MIT"
+}
