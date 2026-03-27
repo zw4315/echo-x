@@ -355,9 +355,6 @@ async function extractPost() {
     // 现在有了 URL 才更新调试信息
     updateDebug(url, '提取中...');
     
-    // 清空之前的 AI 分析内容，避免显示旧内容
-    clearAnalysis();
-    
     // 记录当前提取的 URL
     lastExtractedUrl = url;
     
@@ -638,7 +635,7 @@ async function analyzeText(text: string, url: string, isReply: boolean = false) 
     const model = (await chrome.storage.local.get(['apiModel'])).apiModel || 'kimi-2.5-coding';
     await saveCachedAnalysis(text, url, result, model, isReply);
     
-    updateDebug('', '✅ 分析完成', forceRefresh ? '(强制刷新已保存到缓存)' : '');
+    updateDebug('', forceRefresh ? '✅ 分析完成 (强制刷新已保存到缓存)' : '✅ 分析完成');
     updateCacheStats();
   } catch (e: any) {
     console.error('[Echo-X] Analysis error:', e);

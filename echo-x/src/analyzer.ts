@@ -57,6 +57,32 @@ export class TextAnalyzer {
   }
 
   /**
+   * 从 LLM 响应中提取并解析 JSON
+   */
+  private extractJson<T>(content: string): T | null {
+    // 清理 markdown 代码块标记
+    let cleaned = content.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.slice(7).trim();
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.slice(3).trim();
+    }
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.slice(0, -3).trim();
+    }
+    
+    try {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]) as T;
+      }
+    } catch (e) {
+      console.error('[Echo-X] JSON parse error:', e);
+    }
+    return null;
+  }
+
+  /**
    * 分析文本
    */
   async analyze(text: string, targetLang: string = 'zh'): Promise<AnalysisResult> {
@@ -144,14 +170,10 @@ export class TextAnalyzer {
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     
-    // 解析 JSON
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('[Echo-X] JSON parse error:', e);
+    // 提取并解析 JSON
+    const result = this.extractJson<AnalysisResult>(content);
+    if (result) {
+      return result;
     }
     
     // 如果解析失败，返回基本结果
@@ -236,13 +258,10 @@ export class TextAnalyzer {
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('[Echo-X] JSON parse error:', e);
+    // 提取并解析 JSON
+    const result = this.extractJson<any>(content);
+    if (result) {
+      return result;
     }
     
     // Fallback
@@ -309,13 +328,10 @@ export class TextAnalyzer {
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('[Echo-X] JSON parse error:', e);
+    // 提取并解析 JSON
+    const result = this.extractJson<any>(content);
+    if (result) {
+      return result;
     }
     
     // Fallback
@@ -387,13 +403,10 @@ export class TextAnalyzer {
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('[Echo-X] JSON parse error:', e);
+    // 提取并解析 JSON
+    const result = this.extractJson<any>(content);
+    if (result) {
+      return result;
     }
     
     return {
