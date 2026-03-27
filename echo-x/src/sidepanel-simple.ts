@@ -202,10 +202,7 @@ async function checkGatewayAndInit() {
     updateModelSelect(availableModels, selectedModel);
     updateConnectionStatus(true);
     
-    // 如果有当前帖子，自动分析
-    if (currentPost?.text) {
-      analyzeText(currentPost.text, currentPost.url || '');
-    }
+    // 注意：自动分析现在在 showPost 中处理，避免重复分析
   } else {
     gatewayConnected = false;
     updateDebug('', '❌ 网关未连接', result.error || '请运行 ./setup.sh 启动服务');
@@ -437,7 +434,7 @@ function showPost(data: any) {
     textSpan.textContent = data.text;
     originalText.appendChild(textSpan);
     
-    // 添加朗读按钮（如果支持）
+    // 添加朗读按钮（如果支持）- 初始使用默认语言，分析后会更新
     if (isSpeechSupported()) {
       const speechBtn = createSpeechButton(data.text, getCurrentLanguage());
       speechBtn.classList.add('original-speech-btn');
@@ -456,12 +453,27 @@ function showPost(data: any) {
   // 加载当前帖子的 Q&A 历史
   loadQAHistory();
   
-  // 如果网关已连接，自动分析
-  if (analyzer && gatewayConnected) {
-    analyzeText(data.text, data.url || '');
-  } else if (!gatewayConnected) {
+  // 检查是否需要自动分析
+  // 如果网关已连接且分析器已初始化，则自动分析
+  if (gatewayConnected) {
+    if (!analyzer) {
+      // 如果分析器未初始化，先初始化
+      initAnalyzerAndAnalyze(data.text, data.url || '');
+    } else {
+      // 分析器已存在，直接分析
+      analyzeText(data.text, data.url || '');
+    }
+  } else {
     updateDebug('', '就绪', '请运行 ./setup.sh 启动本地网关');
   }
+}
+
+// 初始化分析器并分析
+async function initAnalyzerAndAnalyze(text: string, url: string) {
+  const saved = await chrome.storage.local.get(['apiModel']);
+  const selectedModel = saved.apiModel || availableModels[0] || 'kimi-2.5-coding';
+  analyzer = new TextAnalyzer('local', 'kimi', selectedModel);
+  analyzeText(text, url);
 }
 
 // AI 分析

@@ -27,12 +27,20 @@ function openDB(): Promise<IDBDatabase> {
     
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
+      const oldVersion = event.oldVersion;
       
       // 创建 Q&A 历史存储
       if (!db.objectStoreNames.contains(QA_STORE_NAME)) {
         const store = db.createObjectStore(QA_STORE_NAME, { keyPath: 'id' });
         store.createIndex('timestamp', 'timestamp', { unique: false });
         store.createIndex('postUrl', 'postUrl', { unique: false });
+      }
+      
+      // 如果是从旧版本升级，确保 analysis_cache store 也存在（兼容性）
+      if (oldVersion < 2 && !db.objectStoreNames.contains('analysis_cache')) {
+        const cacheStore = db.createObjectStore('analysis_cache', { keyPath: 'key' });
+        cacheStore.createIndex('timestamp', 'timestamp', { unique: false });
+        cacheStore.createIndex('url', 'url', { unique: false });
       }
     };
   });

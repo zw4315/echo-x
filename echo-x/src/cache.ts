@@ -2,7 +2,7 @@
 // 使用 IndexedDB 存储，避免重复分析浪费 token
 
 const DB_NAME = 'EchoXCache';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // 升级以兼容 qa-history
 const STORE_NAME = 'analysis_cache';
 
 // 缓存条目接口
@@ -25,10 +25,20 @@ function openDB(): Promise<IDBDatabase> {
     
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
+      const oldVersion = event.oldVersion;
+      
+      // 创建或更新 analysis_cache store
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'key' });
         store.createIndex('timestamp', 'timestamp', { unique: false });
         store.createIndex('url', 'url', { unique: false });
+      }
+      
+      // 如果是从旧版本升级，确保 qa_history store 也存在（兼容性）
+      if (oldVersion < 2 && !db.objectStoreNames.contains('qa_history')) {
+        const qaStore = db.createObjectStore('qa_history', { keyPath: 'id' });
+        qaStore.createIndex('timestamp', 'timestamp', { unique: false });
+        qaStore.createIndex('postUrl', 'postUrl', { unique: false });
       }
     };
   });
