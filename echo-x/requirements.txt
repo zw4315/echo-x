@@ -1,0 +1,9 @@
+# Echo-X 网关服务依赖
+# 安装命令: pip3 install -r requirements.txt
+
+# 主要依赖（二选一即可）
+kimi-agent-sdk; python_version >= "3.12"
+# 或
+openai>=1.0.0
+
+# 如果 kimi-agent-sdk 安装失败，可以只安装 openai

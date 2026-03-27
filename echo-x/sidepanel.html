@@ -8,35 +8,149 @@
 </head>
 <body>
   <div id="app">
+    <!-- 头部 -->
     <header class="header">
-      <button id="refreshBtn" class="refresh-btn" title="刷新">⟳</button>
+      <span id="authorInfo" style="color:var(--text-secondary);font-size:12px;"></span>
+      <div class="header-actions">
+        <button id="settingsBtn" class="icon-btn" title="设置 (Alt+S)">⚙️</button>
+        <button id="refreshBtn" class="refresh-btn" title="刷新">⟳</button>
+      </div>
     </header>
 
+    <!-- 调试面板 -->
     <div id="debugPanel" style="background:#1a1a1a; border:1px solid #333; margin:8px; padding:10px; font-size:11px; font-family:monospace;">
-      <div style="color:#888; margin-bottom:5px;">=== 调试信息 ===</div>
+      <div style="color:#888; margin-bottom:5px;">=== 调试信息 (点击 ⚙️ 或按 Alt+S 打开设置) ===</div>
       <div id="debugUrl" style="color:#0f0;">加载中...</div>
       <div id="debugStatus" style="color:#ff0;"></div>
       <div id="debugError" style="color:#f00;"></div>
-      <button id="forceInjectBtn" style="margin-top:8px; padding:4px 8px; background:#333; border:1px solid #555; color:#fff; cursor:pointer;">强制注入</button>
     </div>
 
+    <!-- 空状态 -->
     <div id="emptyState" class="empty-state">
-      <p>打开 X 帖子页面</p>
+      <p>打开 X 帖子页面后点击刷新</p>
     </div>
 
+    <!-- 主内容 -->
     <main id="mainContent" class="main-content hidden">
+      <!-- 原文 -->
       <section class="section">
         <div class="section-header">
-          <h2>原文</h2>
-          <button id="copyOriginalBtn" class="text-btn">复制</button>
+          <h2>📝 原文</h2>
+          <button id="copyOriginalBtn" class="text-btn" onclick="navigator.clipboard.writeText(document.getElementById('originalText').textContent)">复制</button>
         </div>
         <div class="content-card">
-          <p id="originalText" class="original-text" style="white-space:pre-wrap; line-height:1.6;"></p>
+          <p id="originalText" class="original-text"></p>
         </div>
       </section>
+
+      <!-- AI 分析 -->
+      <section class="section">
+        <div class="section-header">
+          <h2>🤖 AI 分析</h2>
+          <span id="analysisLoading" style="display:none;color:var(--accent);">分析中...</span>
+        </div>
+
+        <!-- 翻译 -->
+        <div class="content-card">
+          <div class="card-title">🇨🇳 翻译</div>
+          <div id="translationText" class="translation-text"></div>
+        </div>
+
+        <!-- 分词 -->
+        <div class="content-card">
+          <div class="card-title">✂️ 分词</div>
+          <div id="tokenization" class="tokenization"></div>
+        </div>
+
+        <!-- 生词 -->
+        <div class="content-card">
+          <div class="card-title">📚 重点词汇 <span class="badge" id="vocabCount">0</span></div>
+          <div id="vocabulary" class="vocabulary-list"></div>
+        </div>
+
+        <!-- 语法 -->
+        <div class="content-card">
+          <div class="card-title">📖 语法要点</div>
+          <div id="grammar" class="grammar-list"></div>
+        </div>
+
+        <!-- 学习建议 -->
+        <div class="content-card">
+          <div class="card-title">💡 学习建议</div>
+          <div id="suggestions" class="suggestions-list"></div>
+        </div>
+      </section>
+
+      <!-- 回复助手 -->
+      <section class="section reply-section">
+        <div class="section-header">
+          <h2>💭 回复助手</h2>
+        </div>
+        
+        <div class="reply-options">
+          <button class="reply-tone-btn active" data-tone="friendly">友好</button>
+          <button class="reply-tone-btn" data-tone="casual">随意</button>
+          <button class="reply-tone-btn" data-tone="formal">正式</button>
+          <button class="reply-tone-btn" data-tone="agree">赞同</button>
+          <button class="reply-tone-btn" data-tone="question">提问</button>
+        </div>
+        
+        <div class="reply-input-area">
+          <textarea 
+            id="replyInput" 
+            class="reply-input" 
+            placeholder="输入你想回复的要点，AI会帮你润色..."
+            rows="3"
+          ></textarea>
+          <div class="reply-actions">
+            <button id="generateReplyBtn" class="generate-btn">✨ 生成回复</button>
+          </div>
+        </div>
+        
+        <div id="generatedReplies" class="generated-replies"></div>
+      </section>
+
+      <div class="bottom-spacer"></div>
     </main>
+
+    <!-- 设置面板 -->
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="settings-header">
+        <button id="closeSettings" class="icon-btn">←</button>
+        <h3>设置 (Alt+S)</h3>
+      </div>
+      
+      <div class="settings-content">
+        <!-- 连接状态 -->
+        <div class="setting-item">
+          <label>本地网关状态</label>
+          <div id="connectionStatus" class="status-checking">
+            ⏳ 检测中...
+          </div>
+          <p class="setting-hint">
+            需要运行 <code>./setup.sh</code> 启动本地网关服务
+          </p>
+        </div>
+
+        <!-- 模型选择 -->
+        <div class="setting-item" id="modelSelectContainer" style="display: none;">
+          <label>选择模型</label>
+          <select id="apiModel">
+            <!-- 动态填充 -->
+          </select>
+          <p class="setting-hint" id="modelHint"></p>
+        </div>
+
+        <button id="saveSettings" class="primary-btn" style="display: none;">💾 保存设置</button>
+        
+        <!-- 刷新连接按钮 -->
+        <button id="refreshConnectionBtn" class="secondary-btn" style="margin-top: 10px;">
+          🔄 重新检测连接
+        </button>
+      </div>
+    </div>
   </div>
 
-  <script src="sidepanel.js"></script>
+  <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

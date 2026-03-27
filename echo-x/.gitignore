@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Config (contains sensitive data)
+config.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

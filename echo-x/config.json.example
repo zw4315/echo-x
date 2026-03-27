@@ -1,0 +1,5 @@
+{
+  "api_key": "your-kimi-api-key-here",
+  "gateway_host": "127.0.0.1",
+  "gateway_port": 9742
+}
