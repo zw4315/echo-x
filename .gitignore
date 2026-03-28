@@ -1,31 +1,24 @@
 # Dependencies
 node_modules/
-package-lock.json
+.venv/
+venv/
 
 # Build output
 dist/
-*.js.map
-*.d.ts
-*.d.ts.map
+*.tsbuildinfo
 
-# Reference projects (not part of Echo-X)
-x-thread-summarizer/
-markdownload-extension-updated/
+# Config (contains sensitive data)
+config.json
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
 
 # Logs
 *.log
-npm-debug.log*
-
-# Test files
-test.html
