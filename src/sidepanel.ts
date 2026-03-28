@@ -437,6 +437,14 @@ function clearAllContent() {
   const qaHistoryList = document.getElementById('qaHistoryList');
   if (qaHistoryList) qaHistoryList.innerHTML = '';
   
+  // 清空问答计数
+  const qaHistoryCount = document.getElementById('qaHistoryCount');
+  if (qaHistoryCount) qaHistoryCount.textContent = '';
+  
+  // 隐藏问答区域
+  const qaHistorySection = document.getElementById('qaHistorySection');
+  if (qaHistorySection) qaHistorySection.classList.add('hidden');
+  
   // 清空生成的回复
   const generatedReplies = document.getElementById('generatedReplies');
   if (generatedReplies) generatedReplies.innerHTML = '';
@@ -444,6 +452,13 @@ function clearAllContent() {
   // 清空输入框
   const replyInput = document.getElementById('replyInput') as HTMLTextAreaElement;
   if (replyInput) replyInput.value = '';
+  
+  // 重置主内容显示状态（切换到空状态）
+  const mainContent = document.getElementById('mainContent');
+  if (mainContent) mainContent.classList.add('hidden');
+  
+  const emptyState = document.getElementById('emptyState');
+  if (emptyState) emptyState.classList.remove('hidden');
   
   console.log('[Echo-X] All content cleared');
 }
