@@ -1,11 +1,11 @@
 // Echo-X - X(Twitter) 语言学习助手
 
-import { TextAnalyzer, AnalysisResult } from './analyzer.js';
-import { checkGatewayStatus, getModelDisplayName, getModelHint } from './api-validator.js';
-import { getCachedAnalysis, saveCachedAnalysis, clearCache, getCacheStats } from './cache.js';
-import { initTextSelection } from './text-selection.js';
-import { createSpeechButton, isSpeechSupported, setDetectedLanguage, getCurrentLanguage, updateAllSpeechButtonsLanguage } from './speech.js';
-import { saveQARecord, getQAHistoryByUrl, getQAStats, clearQAHistory, deleteQARecord, QARecord } from './qa-history.js';
+import { TextAnalyzer, AnalysisResult } from '../services/analyzer.js';
+import { checkGatewayStatus, getModelDisplayName, getModelHint } from '../utils/api-validator.js';
+import { getCachedAnalysis, saveCachedAnalysis, clearCache, getCacheStats } from '../utils/cache.js';
+import { initTextSelection } from '../utils/text-selection.js';
+import { createSpeechButton, isSpeechSupported, setDetectedLanguage, getCurrentLanguage, updateAllSpeechButtonsLanguage } from '../utils/speech.js';
+import { saveQARecord, getQAHistoryByUrl, getQAStats, clearQAHistory, deleteQARecord, QARecord } from '../services/qa-history.js';
 
 console.log('[Echo-X] Starting...');
 
