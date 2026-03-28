@@ -38,6 +38,7 @@ const GATEWAY_URL = 'http://127.0.0.1:9742/v1';
 
 export class TextAnalyzer {
   private model: string;
+  private abortController: AbortController | null = null;
 
   constructor(_apiKey: string, _provider: 'openai' | 'kimi' = 'kimi', model?: string) {
     // 模型名称映射
@@ -54,6 +55,17 @@ export class TextAnalyzer {
     
     this.model = modelMapping[model || ''] || model || 'kimi-2.5-coding';
     console.log('[Echo-X] Analyzer model:', this.model);
+  }
+
+  /**
+   * 中断当前正在进行的请求
+   */
+  abort(): void {
+    if (this.abortController) {
+      console.log('[Echo-X] Aborting current analysis...');
+      this.abortController.abort();
+      this.abortController = null;
+    }
   }
 
   /**
@@ -203,51 +215,69 @@ export class TextAnalyzer {
 6. 如果是日语/韩语，提供假名/读音
 7. 如果是中文，可以提供拼音`;
 
-    const response = await fetch(`${GATEWAY_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer local'
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          { 
-            role: 'system', 
-            content: '你是专业的语言学习助手，擅长词法分析、语法讲解和语言教学。返回 JSON 格式。' 
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        stream: false  // 确保返回完整响应，不是流式
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[Echo-X] API Error:', errorText);
-      throw new Error(`API Error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    // 创建新的 AbortController
+    this.abortController = new AbortController();
     
-    // 提取并解析 JSON
-    const result = this.extractJson<AnalysisResult>(content);
-    if (result) {
-      return result;
+    try {
+      const response = await fetch(`${GATEWAY_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer local'
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { 
+              role: 'system', 
+              content: '你是专业的语言学习助手，擅长词法分析、语法讲解和语言教学。返回 JSON 格式。' 
+            },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.3,
+          stream: false  // 确保返回完整响应，不是流式
+        }),
+        signal: this.abortController.signal
+      });
+      
+      // 请求完成，清除 abortController
+      this.abortController = null;
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Echo-X] API Error:', errorText);
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      
+      // 提取并解析 JSON
+      const result = this.extractJson<AnalysisResult>(content);
+      if (result) {
+        return result;
+      }
+      
+      // 如果解析失败，返回基本结果
+      return {
+        translation: content,
+        difficulty: '未知',
+        tokens: [],
+        grammar: [],
+        vocabulary: [],
+        suggestions: [],
+        detectedLanguage: 'en'
+      };
+    } catch (error) {
+      // 清除 abortController
+      this.abortController = null;
+      
+      // 如果是中断错误，抛出自定义错误
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('ANALYSIS_ABORTED');
+      }
+      throw error;
     }
-    
-    // 如果解析失败，返回基本结果
-    return {
-      translation: content,
-      difficulty: '未知',
-      tokens: [],
-      grammar: [],
-      vocabulary: [],
-      suggestions: [],
-      detectedLanguage: 'en'
-    };
   }
 
   /**

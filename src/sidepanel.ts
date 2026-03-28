@@ -415,7 +415,43 @@ function setupUrlChangeListener() {
 }
 
 // 提取帖子
+// 清空所有内容（原文、分析结果、问答等）
+function clearAllContent() {
+  // 中断正在进行的分析
+  if (analyzer) {
+    analyzer.abort();
+  }
+  
+  // 清空原文
+  const originalText = document.getElementById('originalText');
+  if (originalText) originalText.innerHTML = '';
+  
+  // 清空作者信息
+  const authorInfo = document.getElementById('authorInfo');
+  if (authorInfo) authorInfo.textContent = '';
+  
+  // 清空分析结果
+  clearAnalysis();
+  
+  // 清空问答历史
+  const qaHistoryList = document.getElementById('qaHistoryList');
+  if (qaHistoryList) qaHistoryList.innerHTML = '';
+  
+  // 清空生成的回复
+  const generatedReplies = document.getElementById('generatedReplies');
+  if (generatedReplies) generatedReplies.innerHTML = '';
+  
+  // 清空输入框
+  const replyInput = document.getElementById('replyInput') as HTMLTextAreaElement;
+  if (replyInput) replyInput.value = '';
+  
+  console.log('[Echo-X] All content cleared');
+}
+
 async function extractPost() {
+  // 立即清空所有内容和旧的请求
+  clearAllContent();
+  
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
@@ -721,6 +757,14 @@ async function analyzeText(text: string, url: string, isReply: boolean = false) 
   } catch (e: any) {
     console.error('[Echo-X] Analysis error:', e);
     const errorMsg = e.message || '未知错误';
+    
+    // 如果是用户主动中断，不显示错误，直接清空
+    if (errorMsg === 'ANALYSIS_ABORTED') {
+      console.log('[Echo-X] Analysis was aborted by user');
+      clearAnalysis();
+      return;
+    }
+    
     updateDebug('', '❌ 分析失败', errorMsg);
     showAnalysisError(errorMsg);
   } finally {
