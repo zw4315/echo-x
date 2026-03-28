@@ -10,7 +10,7 @@ export interface CacheEntry {
   key: string;           // 缓存键（帖子内容 hash）
   url: string;           // 帖子 URL
   text: string;          // 帖子原文（前 200 字符用于显示）
-  result: any;           // 分析结果
+  result: unknown;       // 分析结果
   timestamp: number;     // 缓存时间
   model: string;         // 使用的模型
   isReply?: boolean;     // 是否为回复
@@ -56,12 +56,15 @@ function hashContent(text: string): string {
   return Math.abs(hash).toString(16);
 }
 
+function buildCacheKey(text: string, isReply: boolean = false): string {
+  return hashContent(text) + (isReply ? ':reply' : '');
+}
+
 // 获取缓存
 export async function getCachedAnalysis(text: string, isReply: boolean = false): Promise<CacheEntry | null> {
   try {
     const db = await openDB();
-    // 主帖和回复使用不同的缓存键
-    const key = hashContent(text) + (isReply ? ':reply' : '');
+    const key = buildCacheKey(text, isReply);
     
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -87,14 +90,13 @@ export async function getCachedAnalysis(text: string, isReply: boolean = false):
 export async function saveCachedAnalysis(
   text: string,
   url: string,
-  result: any,
+  result: unknown,
   model: string,
   isReply: boolean = false
 ): Promise<void> {
   try {
     const db = await openDB();
-    // 主帖和回复使用不同的缓存键
-    const key = hashContent(text) + (isReply ? ':reply' : '');
+    const key = buildCacheKey(text, isReply);
     
     const entry: CacheEntry = {
       key,
@@ -180,10 +182,10 @@ export async function getCacheStats(): Promise<{
 }
 
 // 删除指定缓存
-export async function deleteCachedAnalysis(text: string): Promise<void> {
+export async function deleteCachedAnalysis(text: string, isReply: boolean = false): Promise<void> {
   try {
     const db = await openDB();
-    const key = hashContent(text);
+    const key = buildCacheKey(text, isReply);
     
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_NAME], 'readwrite');

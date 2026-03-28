@@ -167,6 +167,7 @@ async function loadQAHistory() {
       if (id && confirm('确定删除这条记录吗？')) {
         await deleteQARecord(id);
         await loadQAHistory();
+        await updateQAStats();
       }
     });
   });
@@ -177,6 +178,85 @@ function escapeHtml(text: string): string {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function clearElement(element: Element): void {
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
+function appendTextLine(container: HTMLElement, text: string, className?: string): void {
+  const line = document.createElement('div');
+  if (className) {
+    line.className = className;
+  }
+  line.textContent = text;
+  container.appendChild(line);
+}
+
+function createActionButton(label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.className = 'reply-copy-btn';
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function buildRubyFragment(text: string, reading: string): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  const normalizedReading = reading.trim();
+
+  if (!normalizedReading.includes(':') && !normalizedReading.includes('：')) {
+    fragment.append(document.createTextNode(text));
+    return fragment;
+  }
+
+  const rubyPairs = normalizedReading
+    .split(/[,，]/)
+    .map((pair) => pair.split(/[:：]/).map((part) => part.trim()))
+    .filter((parts): parts is [string, string] => parts.length === 2 && Boolean(parts[0]) && Boolean(parts[1]))
+    .map(([left, right]) => {
+      const readingFirst = /^[\p{Script=Hiragana}\p{Script=Katakana}\sー]+$/u.test(left)
+        && !/^[\p{Script=Hiragana}\p{Script=Katakana}\sー]+$/u.test(right);
+      return readingFirst ? { base: right, ruby: left } : { base: left, ruby: right };
+    });
+
+  if (rubyPairs.length === 0) {
+    fragment.append(document.createTextNode(text));
+    return fragment;
+  }
+
+  let cursor = 0;
+
+  for (const { base, ruby } of rubyPairs) {
+    const index = text.indexOf(base, cursor);
+    if (index === -1) {
+      continue;
+    }
+
+    if (index > cursor) {
+      fragment.append(document.createTextNode(text.slice(cursor, index)));
+    }
+
+    const rubyEl = document.createElement('ruby');
+    rubyEl.append(document.createTextNode(base));
+    const rtEl = document.createElement('rt');
+    rtEl.textContent = ruby;
+    rubyEl.appendChild(rtEl);
+    fragment.appendChild(rubyEl);
+    cursor = index + base.length;
+  }
+
+  if (cursor < text.length) {
+    fragment.append(document.createTextNode(text.slice(cursor)));
+  }
+
+  if (!fragment.hasChildNodes()) {
+    fragment.append(document.createTextNode(text));
+  }
+
+  return fragment;
 }
 
 // 检测网关并初始化
@@ -224,7 +304,7 @@ function updateConnectionStatus(connected: boolean, error?: string) {
       statusEl.innerHTML = '✅ <span style="color: #00ba7c;">本地网关已连接</span>';
       statusEl.className = 'status-connected';
     } else {
-      statusEl.innerHTML = `❌ <span style="color: #f4212e;">${error || '网关未连接'}</span><br><small style="color: #888;">请运行: ./setup.sh</small>`;
+      statusEl.innerHTML = `❌ <span style="color: #f4212e;">${escapeHtml(error || '网关未连接')}</span><br><small style="color: #888;">请运行: ./setup.sh</small>`;
       statusEl.className = 'status-error';
     }
   }
@@ -601,14 +681,15 @@ async function analyzeText(text: string, url: string, isReply: boolean = false) 
     const cached = await getCachedAnalysis(text, isReply);
     if (cached) {
       console.log('[Echo-X] Using cached analysis');
+      const cachedResult = cached.result as AnalysisResult;
       
       // 恢复检测到的语言
-      if (cached.result.detectedLanguage) {
-        setDetectedLanguage(cached.result.detectedLanguage);
-        updateAllSpeechButtonsLanguage(cached.result.detectedLanguage);
+      if (cachedResult.detectedLanguage) {
+        setDetectedLanguage(cachedResult.detectedLanguage);
+        updateAllSpeechButtonsLanguage(cachedResult.detectedLanguage);
       }
       
-      showAnalysis(cached.result);
+      showAnalysis(cachedResult);
       const date = new Date(cached.timestamp).toLocaleString();
       updateDebug('', `✅ 已加载缓存 (${date})  |  💡 Shift+刷新 强制重新分析`);
       updateCacheStats();
@@ -761,7 +842,7 @@ function showAnalysis(result: AnalysisResult) {
         // 使用ルビ形式显示（汉字上方标注读音）
         const rubyContainer = document.createElement('span');
         rubyContainer.className = 'vocab-ruby-text';
-        rubyContainer.innerHTML = renderRubyText(v.example, v.exampleReading);
+        renderRubyText(rubyContainer, v.example, v.exampleReading);
         exampleTextRow.appendChild(rubyContainer);
       } else {
         const exampleText = document.createElement('span');
@@ -828,7 +909,7 @@ function showAnalysis(result: AnalysisResult) {
         // 使用ルビ形式显示
         const rubyContainer = document.createElement('span');
         rubyContainer.className = 'grammar-ruby-text';
-        rubyContainer.innerHTML = renderRubyText(g.example, g.exampleReading);
+        renderRubyText(rubyContainer, g.example, g.exampleReading);
         exampleDiv.appendChild(rubyContainer);
       } else {
         const exampleText = document.createElement('span');
@@ -859,32 +940,9 @@ function showAnalysis(result: AnalysisResult) {
 }
 
 // 渲染带注音的文本（Ruby 标注）
-function renderRubyText(text: string, reading: string): string {
-  // 如果 reading 是简单的注音列表（如 "にほんご:日本語,べんきょう:勉強"）
-  // 或者是完整的注音文本，我们尝试智能匹配
-  
-  // 简单处理：如果 reading 包含冒号，说明是 key:value 格式
-  if (reading.includes(':') || reading.includes('：')) {
-    let result = text;
-    // 解析注音对
-    const pairs = reading.split(/[,，]/);
-    pairs.forEach(pair => {
-      const [kanji, yomi] = pair.split(/[:：]/);
-      if (kanji && yomi) {
-        const kanjiTrimmed = kanji.trim();
-        const yomiTrimmed = yomi.trim();
-        // 替换文本中的汉字为 ruby 标注
-        result = result.replace(
-          kanjiTrimmed,
-          `<ruby>${kanjiTrimmed}<rt>${yomiTrimmed}</rt></ruby>`
-        );
-      }
-    });
-    return result;
-  }
-  
-  // 如果不是 key:value 格式，直接显示原文
-  return text;
+function renderRubyText(container: HTMLElement, text: string, reading: string): void {
+  clearElement(container);
+  container.appendChild(buildRubyFragment(text, reading));
 }
 
 // 获取等级样式
@@ -912,7 +970,8 @@ function showAnalysisLoading(loading: boolean) {
 function showAnalysisError(error: string) {
   const translationEl = document.getElementById('translationText');
   if (translationEl) {
-    translationEl.innerHTML = `<div style="color:#f00;">AI 分析失败: ${error}</div>`;
+    translationEl.textContent = `AI 分析失败: ${error}`;
+    translationEl.setAttribute('style', 'color:#f00;');
   }
 }
 
@@ -972,6 +1031,7 @@ async function generateReply() {
         
         // 刷新 QA 历史显示
         await loadQAHistory();
+        await updateQAStats();
       } catch (e) {
         console.error('[Echo-X] Failed to save QA:', e);
       }
@@ -996,61 +1056,71 @@ function showGeneratedReply(result: any, mode: string = 'rewrite') {
   replyEl.className = 'reply-item';
   
   if (mode === 'rewrite') {
-    // Rewrite 模式：显示 proofread 结果和改进建议
-    replyEl.innerHTML = `
-      <div class="reply-section-title">📝 改进版本</div>
-      <div class="reply-polished">${result.improvedText || result.polishedReply}</div>
-      
-      ${result.issues?.length ? `
-        <div class="reply-section-title">⚠️ 发现的问题</div>
-        <div class="reply-issues">
-          ${result.issues.map((issue: any) => `
-            <div class="issue-item">
-              <div class="issue-original">❌ ${issue.original}</div>
-              <div class="issue-suggestion">✅ ${issue.suggestion}</div>
-              <div class="issue-explanation">💡 ${issue.explanation}</div>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
-      
-      <div class="reply-section-title">📚 改进说明</div>
-      <div class="reply-explanation">${result.explanation}</div>
-      
-      <div class="reply-actions">
-        <button class="reply-copy-btn">📋 复制改进版本</button>
-      </div>
-    `;
-    
-    // 绑定复制按钮
-    replyEl.querySelector('.reply-copy-btn')?.addEventListener('click', () => {
-      const textToCopy = result.improvedText || result.polishedReply;
+    const textToCopy = result.improvedText || result.polishedReply || '';
+
+    appendTextLine(replyEl, '📝 改进版本', 'reply-section-title');
+
+    const polishedEl = document.createElement('div');
+    polishedEl.className = 'reply-polished';
+    polishedEl.textContent = textToCopy;
+    replyEl.appendChild(polishedEl);
+
+    if (result.issues?.length) {
+      appendTextLine(replyEl, '⚠️ 发现的问题', 'reply-section-title');
+
+      const issuesEl = document.createElement('div');
+      issuesEl.className = 'reply-issues';
+
+      result.issues.forEach((issue: any) => {
+        const issueEl = document.createElement('div');
+        issueEl.className = 'issue-item';
+        appendTextLine(issueEl, `❌ ${issue.original || ''}`, 'issue-original');
+        appendTextLine(issueEl, `✅ ${issue.suggestion || ''}`, 'issue-suggestion');
+        appendTextLine(issueEl, `💡 ${issue.explanation || ''}`, 'issue-explanation');
+        issuesEl.appendChild(issueEl);
+      });
+
+      replyEl.appendChild(issuesEl);
+    }
+
+    appendTextLine(replyEl, '📚 改进说明', 'reply-section-title');
+    appendTextLine(replyEl, result.explanation || '', 'reply-explanation');
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'reply-actions';
+    actionsEl.appendChild(createActionButton('📋 复制改进版本', () => {
       navigator.clipboard.writeText(textToCopy);
       updateDebug('', '已复制改进版本');
-    });
+    }));
+    replyEl.appendChild(actionsEl);
   } else {
-    // QA 模式：显示回答
-    replyEl.innerHTML = `
-      <div class="reply-section-title">💬 回答</div>
-      <div class="reply-answer">${result.answer}</div>
-      
-      ${result.references?.length ? `
-        <div class="reply-section-title">📖 参考引用</div>
-        <div class="reply-references">
-          ${result.references.map((ref: string) => `<div class="reference-item">• ${ref}</div>`).join('')}
-        </div>
-      ` : ''}
-      
-      <div class="reply-actions">
-        <button class="reply-copy-btn">📋 复制回答</button>
-      </div>
-    `;
-    
-    // 绑定复制按钮
-    replyEl.querySelector('.reply-copy-btn')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(result.answer);
+    appendTextLine(replyEl, '💬 回答', 'reply-section-title');
+
+    const answerEl = document.createElement('div');
+    answerEl.className = 'reply-answer';
+    answerEl.textContent = result.answer || '';
+    replyEl.appendChild(answerEl);
+
+    if (result.references?.length) {
+      appendTextLine(replyEl, '📖 参考引用', 'reply-section-title');
+
+      const referencesEl = document.createElement('div');
+      referencesEl.className = 'reply-references';
+
+      result.references.forEach((ref: string) => {
+        appendTextLine(referencesEl, `• ${ref}`, 'reference-item');
+      });
+
+      replyEl.appendChild(referencesEl);
+    }
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'reply-actions';
+    actionsEl.appendChild(createActionButton('📋 复制回答', () => {
+      navigator.clipboard.writeText(result.answer || '');
       updateDebug('', '已复制回答');
-    });
+    }));
+    replyEl.appendChild(actionsEl);
   }
   
   container.insertBefore(replyEl, container.firstChild);

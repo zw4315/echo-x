@@ -62,23 +62,85 @@ export class TextAnalyzer {
   private extractJson<T>(content: string): T | null {
     // 清理 markdown 代码块标记
     let cleaned = content.trim();
-    if (cleaned.startsWith('```json')) {
-      cleaned = cleaned.slice(7).trim();
-    } else if (cleaned.startsWith('```')) {
-      cleaned = cleaned.slice(3).trim();
-    }
-    if (cleaned.endsWith('```')) {
-      cleaned = cleaned.slice(0, -3).trim();
+    
+    // 移除开头的 ```json 或 ```
+    cleaned = cleaned.replace(/^```json\s*/i, '');
+    cleaned = cleaned.replace(/^```\s*/, '');
+    
+    // 移除结尾的 ```
+    cleaned = cleaned.replace(/\s*```$/, '');
+    
+    // 再次 trim
+    cleaned = cleaned.trim();
+    
+    console.log('[Echo-X] Cleaned content preview:', cleaned.substring(0, 100));
+    
+    // 尝试直接解析整个内容
+    try {
+      const result = JSON.parse(cleaned) as T;
+      console.log('[Echo-X] JSON parsed successfully');
+      return result;
+    } catch (e) {
+      console.log('[Echo-X] Direct parse failed, trying to extract JSON object...');
     }
     
-    try {
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]) as T;
+    // 如果直接解析失败，使用括号匹配找到最外层 JSON 对象
+    const jsonStr = this.extractJsonObject(cleaned);
+    if (jsonStr) {
+      try {
+        const result = JSON.parse(jsonStr) as T;
+        console.log('[Echo-X] JSON extracted and parsed');
+        return result;
+      } catch (e) {
+        console.error('[Echo-X] JSON parse error after extraction:', e);
       }
-    } catch (e) {
-      console.error('[Echo-X] JSON parse error:', e);
     }
+    
+    return null;
+  }
+
+  /**
+   * 从文本中提取最外层的 JSON 对象
+   */
+  private extractJsonObject(text: string): string | null {
+    let braceCount = 0;
+    let startIndex = -1;
+    let inString = false;
+    let escapeNext = false;
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+      
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+      
+      if (!inString) {
+        if (char === '{') {
+          if (braceCount === 0) {
+            startIndex = i;
+          }
+          braceCount++;
+        } else if (char === '}') {
+          braceCount--;
+          if (braceCount === 0 && startIndex !== -1) {
+            return text.substring(startIndex, i + 1);
+          }
+        }
+      }
+    }
+    
     return null;
   }
 
