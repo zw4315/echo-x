@@ -7,7 +7,7 @@
     "dev": "tsc --watch",
     "build": "npm run clean && tsc && npm run copy-assets",
     "clean": "rm -rf dist/*",
-    "copy-assets": "cp -r icons dist/ && cp sidepanel.html dist/ && cp sidepanel.css dist/ && cp manifest.json dist/ && cp dist/sidepanel-simple.js dist/sidepanel.js",
+    "copy-assets": "cp -r icons dist/ && cp sidepanel.html dist/ && cp sidepanel.css dist/ && cp manifest.json dist/",
     "lint": "eslint src/**/*.ts",
     "type-check": "tsc --noEmit"
   },

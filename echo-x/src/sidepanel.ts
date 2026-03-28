@@ -1,909 +1,1146 @@
-// Echo-X Side Panel Logic - TypeScript 版本
+// Echo-X - X(Twitter) 语言学习助手
 
-import type {
-  ExtensionSettings,
-  XPost,
-  AnalysisResult,
-  GeneratedReply,
-  ToneType,
-  TokenItem,
-  VocabularyItem,
-  GrammarItem,
-  ExampleItem
-} from './types/index.js';
+import { TextAnalyzer, AnalysisResult } from './analyzer.js';
+import { checkGatewayStatus, getModelDisplayName, getModelHint } from './api-validator.js';
+import { getCachedAnalysis, saveCachedAnalysis, clearCache, getCacheStats } from './cache.js';
+import { initTextSelection } from './text-selection.js';
+import { createSpeechButton, isSpeechSupported, setDetectedLanguage, getCurrentLanguage, updateAllSpeechButtonsLanguage } from './speech.js';
+import { saveQARecord, getQAHistoryByUrl, getQAStats, clearQAHistory, deleteQARecord, QARecord } from './qa-history.js';
 
-/**
- * Echo-X 侧边栏主类
- */
-class EchoXSidePanel {
-  private settings: ExtensionSettings;
-  private currentPost: XPost | null = null;
-  private analysisResult: AnalysisResult | null = null;
-  private selectedTone: ToneType = 'friendly';
+console.log('[Echo-X] Starting...');
 
-  constructor() {
-    this.settings = {
-      apiProvider: 'openai',
-      apiKey: '',
-      apiModel: 'gpt-4o-mini',
-      apiBaseUrl: '',
-      targetLanguage: 'zh-CN',
-      nativeLanguage: 'zh-CN',
-      learningLanguage: 'auto',
-      autoAnalyze: true
-    };
-  }
+// 全局状态
+let currentPost: any = null;
+let analyzer: TextAnalyzer | null = null;
+let gatewayConnected = false;
+let availableModels: string[] = [];
+let forceRefresh = false;  // 强制刷新标志
 
-  /**
-   * 初始化
-   */
-  async init(): Promise<void> {
-    try {
-      console.log('[Echo-X] Initializing...');
-      await this.loadSettings();
-      this.initEventListeners();
-      this.initReplyAssistant();
-      await this.checkAndExtract();
-    } catch (err) {
-      console.error('[Echo-X] Init error:', err);
-      this.showError('初始化失败: ' + (err instanceof Error ? err.message : String(err)));
+// 初始化
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log('[Echo-X] DOM ready');
+  
+  // 绑定按钮
+  document.getElementById('refreshBtn')?.addEventListener('click', (e) => {
+    // Shift+点击 = 强制刷新
+    if (e.shiftKey) {
+      forceRefresh = true;
+      updateDebug('', '强制刷新模式', '将重新分析并更新缓存');
     }
-  }
-
-  /**
-   * 显示错误
-   */
-  private showError(message: string): void {
-    console.error('[Echo-X]', message);
-    const errorEl = document.getElementById('errorDetail');
-    if (errorEl) errorEl.textContent = message;
-    this.showEmptyState();
-  }
-
-  // ========== 设置管理 ==========
-
-  /**
-   * 加载设置
-   */
-  private async loadSettings(): Promise<void> {
-    const keys: (keyof ExtensionSettings)[] = [
-      'apiProvider', 'apiKey', 'apiModel', 'apiBaseUrl',
-      'targetLanguage', 'nativeLanguage', 'learningLanguage', 'autoAnalyze'
-    ];
-    
-    const result = await chrome.storage.local.get(keys);
-    this.settings = { ...this.settings, ...result };
-    
-    this.updateSettingsForm();
-  }
-
-  /**
-   * 更新设置表单
-   */
-  private updateSettingsForm(): void {
-    const getEl = (id: string) => document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-    
-    const apiProviderEl = getEl('apiProvider');
-    const apiKeyEl = getEl('apiKey');
-    const aiModelEl = getEl('aiModel');
-    const learningLangEl = getEl('learningLanguage');
-    const targetLangEl = getEl('targetLanguage');
-    
-    if (apiProviderEl) apiProviderEl.value = this.settings.apiProvider;
-    if (apiKeyEl) apiKeyEl.value = this.settings.apiKey;
-    if (aiModelEl) aiModelEl.value = this.settings.apiModel;
-    if (learningLangEl) learningLangEl.value = this.settings.learningLanguage;
-    if (targetLangEl) targetLangEl.value = this.settings.targetLanguage;
-  }
-
-  /**
-   * 保存设置
-   */
-  private async saveSettings(): Promise<void> {
-    const getEl = (id: string) => document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-    
-    this.settings = {
-      ...this.settings,
-      apiProvider: (getEl('apiProvider')?.value as 'openai' | 'kimi') || 'openai',
-      apiKey: getEl('apiKey')?.value.trim() || '',
-      apiModel: getEl('aiModel')?.value || 'gpt-4o-mini',
-      learningLanguage: getEl('learningLanguage')?.value || 'auto',
-      targetLanguage: getEl('targetLanguage')?.value || 'zh-CN'
-    };
-    
-    await chrome.storage.local.set(this.settings);
-    this.showSettings(false);
-    this.showToast('设置已保存');
-    
-    if (this.currentPost && this.settings.apiKey) {
-      this.analyzePost();
-    }
-  }
-
-  // ========== 事件监听 ==========
-
-  /**
-   * 初始化事件监听
-   */
-  private initEventListeners(): void {
-    // 刷新按钮
-    document.getElementById('refreshBtn')?.addEventListener('click', () => this.checkAndExtract());
-    
-    // 调试按钮
-    document.getElementById('forceInjectBtn')?.addEventListener('click', () => this.forceInject());
-    document.getElementById('toggleDebugBtn')?.addEventListener('click', () => this.toggleDebug());
-    
-    // 设置面板 (Alt+S 打开)
-    document.getElementById('closeSettings')?.addEventListener('click', () => this.showSettings(false));
-    document.getElementById('saveSettings')?.addEventListener('click', () => this.saveSettings());
-    
-    // 键盘快捷键
-    document.addEventListener('keydown', (e) => {
-      if (e.altKey && e.key === 's') {
-        e.preventDefault();
-        const settingsPanel = document.getElementById('settingsPanel');
-        this.showSettings(settingsPanel?.classList.contains('hidden') || false);
-      }
-      if (e.altKey && e.key === 'd') {
-        e.preventDefault();
-        this.toggleDebug();
-      }
-    });
-    
-    // 复制按钮
-    document.getElementById('copyOriginalBtn')?.addEventListener('click', () => {
-      this.copyToClipboard(this.currentPost?.text || '');
-    });
-    document.getElementById('copyTranslationBtn')?.addEventListener('click', () => {
-      this.copyToClipboard(this.analysisResult?.translation || '');
-    });
-
-    // 监听标签页变化
-    chrome.tabs.onActivated.addListener(() => this.checkAndExtract());
-    chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
-      if (changeInfo.url) this.checkAndExtract();
-    });
-  }
-
-  /**
-   * 切换调试面板
-   */
-  private toggleDebug(): void {
-    const panel = document.getElementById('debugPanel');
-    if (panel) {
-      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    }
-  }
-
-  /**
-   * 更新调试信息
-   */
-  private updateDebug(url: string, status: string, error?: string): void {
-    const urlEl = document.getElementById('debugUrl');
-    const statusEl = document.getElementById('debugStatus');
-    const errorEl = document.getElementById('debugError');
-    
-    if (urlEl) urlEl.textContent = 'URL: ' + (url || 'null');
-    if (statusEl) statusEl.textContent = '状态: ' + status;
-    if (errorEl && error) errorEl.textContent = '错误: ' + error;
-  }
-
-  /**
-   * 强制注入 content script
-   */
-  private async forceInject(): Promise<void> {
-    try {
-      this.updateDebug('', '强制注入中...');
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) {
-        this.updateDebug('', '注入失败', '无法获取当前标签页');
-        return;
-      }
-
-      // 先尝试直接注入
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['content.js']
-      });
+    extractPost();
+  });
+  document.getElementById('settingsBtn')?.addEventListener('click', () => showSettings(true));
+  document.getElementById('closeSettings')?.addEventListener('click', () => showSettings(false));
+  document.getElementById('saveSettings')?.addEventListener('click', saveSettings);
+  document.getElementById('generateReplyBtn')?.addEventListener('click', generateReply);
+  document.getElementById('refreshConnectionBtn')?.addEventListener('click', checkGatewayAndInit);
+  document.getElementById('clearCacheBtn')?.addEventListener('click', handleClearCache);
+  document.getElementById('clearQABtn')?.addEventListener('click', handleClearQAHistory);
+  
+  // 模式选择 (rewrite / qa)
+  document.querySelectorAll('.reply-mode-btn').forEach(btn => {
+    const button = btn as HTMLButtonElement;
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.reply-mode-btn').forEach(b => b.classList.remove('active'));
+      button.classList.add('active');
       
-      this.updateDebug(tab.url || '', '注入成功，等待加载...');
-      
-      // 等待一下再提取
-      setTimeout(() => this.checkAndExtract(), 1000);
-    } catch (error) {
-      this.updateDebug('', '注入失败', error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  /**
-   * 初始化回复助手
-   */
-  private initReplyAssistant(): void {
-    // 语气选择
-    document.querySelectorAll('.reply-tone-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.reply-tone-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.selectedTone = (btn as HTMLElement).dataset.tone as ToneType || 'friendly';
-      });
-    });
-    document.querySelector('[data-tone="friendly"]')?.classList.add('active');
-
-    // 生成回复
-    document.getElementById('generateReplyBtn')?.addEventListener('click', () => this.generateReply());
-    document.getElementById('quickReplyBtn')?.addEventListener('click', () => this.quickReply());
-
-    // 回车发送
-    const replyInput = document.getElementById('replyInput') as HTMLTextAreaElement | null;
-    replyInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        this.generateReply();
-      }
-    });
-  }
-
-  // ========== 帖子提取 ==========
-
-  /**
-   * 检查并提取当前帖子
-   */
-  private async checkAndExtract(): Promise<void> {
-    this.showLoading(true);
-    this.updateDebug('', '开始检测...');
-    
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) {
-        console.log('[Echo-X] No active tab');
-        this.updateDebug('', '失败', '无法获取当前标签页');
-        this.showLoading(false);
-        return;
-      }
-
-      const url = tab.url || '';
-      console.log('[Echo-X] Current URL:', url);
-      
-      const hasXDomain = url.includes('x.com/') || url.includes('twitter.com/');
-      const hasStatus = url.includes('/status/');
-      const isValidPage = hasXDomain && hasStatus;
-
-      if (!isValidPage) {
-        console.log('[Echo-X] Not a valid X post page:', { hasXDomain, hasStatus, url });
-        const emptyState = document.getElementById('emptyState');
-        const errorDetail = document.getElementById('errorDetail');
-        if (emptyState) emptyState.classList.remove('hidden');
-        
-        let errorMsg = '';
-        if (!hasXDomain) {
-          errorMsg = '当前不是 X 网站';
-        } else if (!hasStatus) {
-          errorMsg = '当前不是帖子页面';
+      // 更新 placeholder
+      const mode = button.dataset.mode;
+      const input = document.getElementById('replyInput') as HTMLTextAreaElement;
+      if (input) {
+        if (mode === 'rewrite') {
+          input.placeholder = '输入你想表达的英文内容，AI会帮你 proofread...';
         } else {
-          errorMsg = 'URL格式错误';
+          input.placeholder = '输入你想问的问题，可以引用上文内容...';
         }
-        
-        if (errorDetail) errorDetail.textContent = errorMsg;
-        this.updateDebug(url, 'URL检查失败', errorMsg);
-        this.showLoading(false);
-        return;
       }
-
-      this.updateDebug(url, 'URL合法，发送消息...');
-      console.log('[Echo-X] Sending message to content script...');
-      
-      // 先测试 content script 是否响应
-      let response;
-      try {
-        response = await Promise.race([
-          chrome.tabs.sendMessage(tab.id, { type: 'GET_CURRENT_POST' }),
-          new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('TIMEOUT')), 5000)
-          )
-        ]);
-      } catch (sendError) {
-        const errorMsg = sendError instanceof Error ? sendError.message : String(sendError);
-        console.log('[Echo-X] Send message failed:', errorMsg);
-        
-        if (errorMsg.includes('Could not establish connection') || errorMsg.includes('Receiving end does not exist')) {
-          this.updateDebug(url, 'Content Script 未加载', '尝试自动注入...');
-          await this.injectContentScript();
-          this.showLoading(false);
-          return;
-        } else if (errorMsg === 'TIMEOUT') {
-          this.updateDebug(url, '超时', 'Content Script 无响应');
-          this.handleError('Content Script 无响应，请尝试点击"强制注入"按钮');
-          this.showLoading(false);
-          return;
-        }
-        throw sendError;
-      }
-      
-      console.log('[Echo-X] Response:', response);
-      this.showLoading(false);
-      
-      if (response.success) {
-        this.updateDebug(url, '提取成功');
-        this.handlePostExtracted(response.data as XPost);
-      } else {
-        this.updateDebug(url, '提取失败', response.error as string);
-        this.handleError(response.error as string || '提取失败');
-      }
-    } catch (error) {
-      this.showLoading(false);
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[Echo-X] Error in checkAndExtract:', error);
-      this.updateDebug('', '异常', errorMsg);
-      this.handleError(errorMsg);
+    });
+  });
+  
+  // 快捷键
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey && e.key === 's') {
+      e.preventDefault();
+      const panel = document.getElementById('settingsPanel');
+      showSettings(panel?.classList.contains('hidden') || false);
     }
+  });
+  
+  // 初始化文本选择引用功能
+  initTextSelection();
+  
+  // 检测网关状态
+  await checkGatewayAndInit();
+  
+  // 自动提取当前页面
+  extractPost();
+  
+  // 监听 URL 变化（X 是 SPA，点击回复时 URL 会变化）
+  setupUrlChangeListener();
+});
+
+// 更新缓存统计显示
+async function updateCacheStats() {
+  const statsEl = document.getElementById('cacheStats');
+  if (!statsEl) return;
+  
+  const stats = await getCacheStats();
+  if (stats.count === 0) {
+    statsEl.innerHTML = '暂无缓存';
+  } else {
+    const oldest = stats.oldestTimestamp ? new Date(stats.oldestTimestamp).toLocaleDateString() : '-';
+    statsEl.innerHTML = `${stats.count} 条分析结果 (最早: ${oldest})`;
   }
+}
 
-  /**
-   * 注入 content script
-   */
-  private async injectContentScript(): Promise<void> {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) {
-        this.handleError('无法获取当前标签页');
-        return;
-      }
-
-      console.log('[Echo-X] Injecting content script...');
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['content.js']
-      });
-      console.log('[Echo-X] Content script injected');
-
-      // 等待脚本初始化
-      setTimeout(() => this.checkAndExtract(), 800);
-    } catch (error) {
-      console.error('[Echo-X] Inject failed:', error);
-      this.handleError('注入失败: ' + (error instanceof Error ? error.message : String(error)));
-    }
+// 更新 Q&A 统计
+async function updateQAStats() {
+  const statsEl = document.getElementById('qaStats');
+  if (!statsEl) return;
+  
+  const stats = await getQAStats();
+  if (stats.totalCount === 0) {
+    statsEl.innerHTML = '暂无提问记录';
+  } else {
+    statsEl.innerHTML = `${stats.totalCount} 条提问 (${stats.postCount} 个帖子) · 今日 ${stats.todayCount} 条`;
   }
+}
 
-  /**
-   * 处理帖子提取成功
-   */
-  private handlePostExtracted(data: XPost): void {
-    console.log('[Echo-X] Post extracted:', data);
-    
-    // 验证数据
-    if (!data) {
-      this.handleError('提取数据为空');
-      return;
-    }
-    
-    if (!data.text || data.text.trim().length === 0) {
-      console.warn('[Echo-X] Extracted post has no text, retrying...');
-      // 可能页面还没加载完，延迟重试
-      setTimeout(() => this.checkAndExtract(), 1000);
-      return;
-    }
-    
-    this.currentPost = data;
-    this.renderPost(data);
-    
-    if (this.settings.apiKey) {
-      this.analyzePost();
-    } else {
-      this.showPlaceholder('请在设置中配置 API Key');
-    }
+// 清空缓存
+async function handleClearCache() {
+  if (!confirm('确定要清空所有缓存的分析结果吗？')) {
+    return;
   }
+  
+  await clearCache();
+  updateCacheStats();
+  updateDebug('', '缓存已清空');
+}
 
-  /**
-   * 处理错误
-   */
-  private handleError(error: string, debugInfo?: string): void {
-    console.error('[Echo-X]', error, debugInfo);
-    const emptyState = document.getElementById('emptyState');
-    if (emptyState) {
-      const h3 = emptyState.querySelector('h3');
-      const p = emptyState.querySelector('p');
-      if (h3) h3.textContent = '提取失败';
-      let errorText = error || '请确保你在 X 帖子页面';
-      if (debugInfo) {
-        errorText += `\n\n调试: ${debugInfo}`;
-      }
-      errorText += '\n\n尝试点击刷新按钮 🔄 重试';
-      if (p) p.textContent = errorText;
-      this.showEmptyState();
-    }
+// 清空 Q&A 历史
+async function handleClearQAHistory() {
+  if (!confirm('确定要清空所有 Q&A 历史记录吗？此操作不可恢复。')) {
+    return;
   }
+  
+  await clearQAHistory();
+  updateQAStats();
+  await loadQAHistory();
+  updateDebug('', 'Q&A 历史已清空');
+}
 
-  /**
-   * 渲染帖子
-   */
-  private renderPost(data: XPost): void {
-    console.log('[Echo-X] Rendering post:', data);
-    
-    // 检查数据完整性
-    if (!data.text || data.text.trim().length === 0) {
-      console.warn('[Echo-X] Post text is empty');
-      this.handleError('提取到空文本', JSON.stringify({
-        hasAuthor: !!data.author?.displayName,
-        hasText: !!data.text,
-        textLength: data.text?.length,
-        timestamp: data.timestamp
-      }));
-      return;
-    }
-    
-    document.getElementById('emptyState')?.classList.add('hidden');
-    document.getElementById('loadingState')?.classList.add('hidden');
-    document.getElementById('mainContent')?.classList.remove('hidden');
-
-    const authorNameEl = document.getElementById('authorName');
-    const authorHandleEl = document.getElementById('authorHandle');
-    const postTimeEl = document.getElementById('postTime');
-    const originalTextEl = document.getElementById('originalText');
-
-    if (authorNameEl) authorNameEl.textContent = data.author?.displayName || 'Unknown';
-    if (authorHandleEl) authorHandleEl.textContent = `@${data.author?.handle || 'unknown'}`;
-    if (postTimeEl) postTimeEl.textContent = this.formatTime(data.timestamp);
-    if (originalTextEl) originalTextEl.textContent = data.text;
-
-    // 图片
-    const imagesContainer = document.getElementById('postImages');
-    if (imagesContainer) {
-      imagesContainer.innerHTML = '';
-      data.images?.forEach(img => {
-        const imgEl = document.createElement('img');
-        imgEl.src = img.url;
-        imgEl.alt = img.alt || '';
-        imagesContainer.appendChild(imgEl);
-      });
-    }
+// 加载并显示当前帖子的 Q&A 历史
+async function loadQAHistory() {
+  if (!currentPost?.url) return;
+  
+  const history = await getQAHistoryByUrl(currentPost.url);
+  const container = document.getElementById('qaHistoryList');
+  const countEl = document.getElementById('qaHistoryCount');
+  
+  if (countEl) {
+    countEl.textContent = history.length > 0 ? `${history.length} 条` : '';
   }
-
-  // ========== AI 分析 ==========
-
-  /**
-   * 分析帖子
-   */
-  private async analyzePost(): Promise<void> {
-    if (!this.currentPost || !this.settings.apiKey) return;
-
-    this.showLoading(true);
-
-    try {
-      const prompt = `分析以下文本，返回 JSON 格式：
-
-文本："""${this.currentPost.text}"""
-
-返回：
-{
-  "translation": "中文翻译",
-  "tokenization": [{"word": "单词", "reading": "读音"}],
-  "vocabulary": [{"word": "生词", "reading": "读音", "meaning": "意思", "level": "N5/N4/N3/N2/N1"}],
-  "grammar": [{"pattern": "语法", "explanation": "解释"}],
-  "examples": [{"sentence": "例句", "translation": "翻译", "context": "场景"}]
-}`;
-
-      this.analysisResult = await this.callAI<AnalysisResult>(prompt, true);
-      this.renderAnalysis(this.analysisResult);
-    } catch (error) {
-      console.error('[Echo-X] Analysis error:', error);
-      this.showPlaceholder('分析失败，请检查 API Key');
-    } finally {
-      this.showLoading(false);
-    }
+  
+  if (!container) return;
+  
+  if (history.length === 0) {
+    container.innerHTML = '<div class="qa-history-empty">暂无提问记录</div>';
+    return;
   }
-
-  /**
-   * 渲染分析结果
-   */
-  private renderAnalysis(result: AnalysisResult): void {
-    // 翻译
-    const translationEl = document.getElementById('translationText');
-    if (translationEl) translationEl.textContent = result.translation || '暂无翻译';
-
-    // 分词
-    const tokenContainer = document.getElementById('tokenization');
-    if (tokenContainer) {
-      tokenContainer.innerHTML = result.tokenization?.map((t: TokenItem) => `
-        <div class="token">
-          <span class="token-word">${t.word}</span>
-          ${t.reading ? `<span class="token-reading">${t.reading}</span>` : ''}
-        </div>
-      `).join('') || '<p style="color: var(--text-secondary)">暂无分词</p>';
-    }
-
-    // 生词
-    const vocabContainer = document.getElementById('vocabulary');
-    const vocabCount = document.getElementById('vocabCount');
-    if (vocabContainer && result.vocabulary) {
-      if (vocabCount) vocabCount.textContent = String(result.vocabulary.length);
-      vocabContainer.innerHTML = result.vocabulary.map((v: VocabularyItem) => `
-        <div class="vocab-item">
-          <div>
-            <span class="vocab-word">${v.word}</span>
-            ${v.reading ? `<span class="vocab-reading">${v.reading}</span>` : ''}
-            <span class="vocab-level level-n3">${v.level || 'N3'}</span>
-          </div>
-          <div class="vocab-meaning">${v.meaning}</div>
-        </div>
-      `).join('');
-    }
-
-    // 语法
-    const grammarContainer = document.getElementById('grammar');
-    if (grammarContainer) {
-      grammarContainer.innerHTML = result.grammar?.map((g: GrammarItem) => `
-        <div class="grammar-item">
-          <div class="grammar-pattern">${g.pattern}</div>
-          <div class="grammar-explanation">${g.explanation}</div>
-        </div>
-      `).join('') || '<p style="color: var(--text-secondary)">暂无语法要点</p>';
-    }
-
-    // 例句
-    const examplesContainer = document.getElementById('examples');
-    if (examplesContainer) {
-      examplesContainer.innerHTML = result.examples?.map((e: ExampleItem) => `
-        <div class="example-item">
-          <div class="example-sentence">${e.sentence}</div>
-          <div class="example-translation">${e.translation}</div>
-          <div class="example-context">📍 ${e.context}</div>
-        </div>
-      `).join('') || '<p style="color: var(--text-secondary)">暂无例句</p>';
-    }
-  }
-
-  // ========== 回复助手 ==========
-
-  /**
-   * 生成回复
-   */
-  private async generateReply(): Promise<void> {
-    const input = (document.getElementById('replyInput') as HTMLTextAreaElement | null)?.value.trim();
-    if (!input) {
-      this.showToast('请输入回复内容');
-      return;
-    }
-
-    if (!this.settings.apiKey) {
-      this.showToast('请先配置 API Key');
-      this.showSettings(true);
-      return;
-    }
-
-    this.setReplyLoading(true);
-
-    try {
-      const toneMap: Record<ToneType, string> = {
-        friendly: '友好热情', casual: '随意轻松', formal: '正式礼貌',
-        humorous: '幽默风趣', agree: '赞同支持', question: '提问好奇'
-      };
-
-      const prompt = `用户想回复这个 X 帖子：
-原帖："""${this.currentPost?.text || ''}"""
-用户输入："""${input}"""
-语气：${toneMap[this.selectedTone]}
-
-请返回 JSON：
-{
-  "polishedReply": "润色后的回复",
-  "translation": "中文翻译",
-  "explanation": "修改说明和语言知识点",
-  "grammarCheck": {
-    "hasErrors": true/false,
-    "errors": ["错误1", "错误2"],
-    "suggestions": ["建议1"]
-  }
-}`;
-
-      const result = await this.callAI<GeneratedReply>(prompt, true);
-      this.displayGeneratedReply(result);
-      
-      const replyInput = document.getElementById('replyInput') as HTMLTextAreaElement | null;
-      if (replyInput) replyInput.value = '';
-    } catch (error) {
-      this.showToast('生成失败: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      this.setReplyLoading(false);
-    }
-  }
-
-  /**
-   * 快速回复
-   */
-  private async quickReply(): Promise<void> {
-    if (!this.settings.apiKey) {
-      this.showToast('请先配置 API Key');
-      return;
-    }
-
-    this.setReplyLoading(true);
-
-    try {
-      const toneMap: Record<ToneType, string> = {
-        friendly: '友好', casual: '随意', formal: '正式',
-        humorous: '幽默', agree: '赞同', question: '提问'
-      };
-
-      const prompt = `为这个 X 帖子生成一个${toneMap[this.selectedTone]}的回复：
-"""${this.currentPost?.text || ''}"""
-
-返回 JSON：
-{
-  "polishedReply": "回复内容",
-  "translation": "中文翻译",
-  "explanation": "语言知识点说明"
-}`;
-
-      const result = await this.callAI<GeneratedReply>(prompt, true);
-      this.displayGeneratedReply(result);
-    } catch (error) {
-      this.showToast('生成失败: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      this.setReplyLoading(false);
-    }
-  }
-
-  /**
-   * 显示生成的回复
-   */
-  private displayGeneratedReply(reply: GeneratedReply): void {
-    const container = document.getElementById('generatedReplies');
-    if (!container) return;
-
-    const replyEl = document.createElement('div');
-    replyEl.className = 'reply-item';
-    replyEl.innerHTML = `
-      <div class="reply-text">${this.escapeHtml(reply.polishedReply)}</div>
-      ${reply.translation ? `<div class="reply-translation">${reply.translation}</div>` : ''}
-      ${reply.explanation ? `<div class="reply-explanation">💡 ${reply.explanation}</div>` : ''}
-      ${reply.grammarCheck?.hasErrors ? `
-        <div style="margin-bottom: 8px; padding: 8px; background: rgba(244, 33, 46, 0.1); border-radius: 6px;">
-          <div style="font-size: 12px; color: var(--error); margin-bottom: 4px;">⚠️ 语法问题</div>
-          <ul style="font-size: 12px; color: var(--text-secondary); margin: 0; padding-left: 16px;">
-            ${reply.grammarCheck.errors.map(e => `<li>${e}</li>`).join('')}
-          </ul>
-        </div>
-      ` : ''}
-      <div class="reply-item-actions">
-        <button class="reply-item-btn copy-btn" data-text="${this.escapeHtml(reply.polishedReply)}">📋 复制</button>
-        <button class="reply-item-btn use-btn" data-text="${this.escapeHtml(reply.polishedReply)}">✓ 使用</button>
+  
+  container.innerHTML = history.map((qa: QARecord) => `
+    <div class="qa-history-item" data-id="${qa.id}">
+      <div class="qa-history-question">❓ ${escapeHtml(qa.question)}</div>
+      <div class="qa-history-answer">💡 ${escapeHtml(qa.answer.substring(0, 100))}${qa.answer.length > 100 ? '...' : ''}</div>
+      <div class="qa-history-meta">
+        <span>${new Date(qa.timestamp).toLocaleDateString()}</span>
+        <button class="qa-delete-btn" data-id="${qa.id}" title="删除">🗑️</button>
       </div>
-    `;
-
-    container.insertBefore(replyEl, container.firstChild);
-
-    // 绑定按钮
-    replyEl.querySelector('.copy-btn')?.addEventListener('click', (e) => {
-      const text = (e.target as HTMLElement).dataset.text || '';
-      this.copyToClipboard(text);
-      (e.target as HTMLElement).textContent = '✓ 已复制';
-      setTimeout(() => (e.target as HTMLElement).textContent = '📋 复制', 2000);
+    </div>
+  `).join('');
+  
+  // 绑定删除按钮
+  container.querySelectorAll('.qa-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = (btn as HTMLButtonElement).dataset.id;
+      if (id && confirm('确定删除这条记录吗？')) {
+        await deleteQARecord(id);
+        await loadQAHistory();
+        await updateQAStats();
+      }
     });
+  });
+}
 
-    replyEl.querySelector('.use-btn')?.addEventListener('click', (e) => {
-      const text = (e.target as HTMLElement).dataset.text || '';
-      this.useReply(text);
-    });
+// HTML 转义
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function clearElement(element: Element): void {
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
+function appendTextLine(container: HTMLElement, text: string, className?: string): void {
+  const line = document.createElement('div');
+  if (className) {
+    line.className = className;
+  }
+  line.textContent = text;
+  container.appendChild(line);
+}
+
+function createActionButton(label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.className = 'reply-copy-btn';
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function buildRubyFragment(text: string, reading: string): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  const normalizedReading = reading.trim();
+
+  if (!normalizedReading.includes(':') && !normalizedReading.includes('：')) {
+    fragment.append(document.createTextNode(text));
+    return fragment;
   }
 
-  /**
-   * 设置回复加载状态
-   */
-  private setReplyLoading(loading: boolean): void {
-    const btn = document.getElementById('generateReplyBtn') as HTMLButtonElement | null;
-    if (btn) btn.disabled = loading;
+  const rubyPairs = normalizedReading
+    .split(/[,，]/)
+    .map((pair) => pair.split(/[:：]/).map((part) => part.trim()))
+    .filter((parts): parts is [string, string] => parts.length === 2 && Boolean(parts[0]) && Boolean(parts[1]))
+    .map(([left, right]) => {
+      const readingFirst = /^[\p{Script=Hiragana}\p{Script=Katakana}\sー]+$/u.test(left)
+        && !/^[\p{Script=Hiragana}\p{Script=Katakana}\sー]+$/u.test(right);
+      return readingFirst ? { base: right, ruby: left } : { base: left, ruby: right };
+    });
 
-    const container = document.getElementById('generatedReplies');
-    if (!container) return;
+  if (rubyPairs.length === 0) {
+    fragment.append(document.createTextNode(text));
+    return fragment;
+  }
 
-    if (loading) {
-      const loadingEl = document.createElement('div');
-      loadingEl.id = 'replyLoading';
-      loadingEl.className = 'reply-generating';
-      loadingEl.innerHTML = '<div class="spinner"></div><span>Kimi 思考中...</span>';
-      container.insertBefore(loadingEl, container.firstChild);
+  let cursor = 0;
+
+  for (const { base, ruby } of rubyPairs) {
+    const index = text.indexOf(base, cursor);
+    if (index === -1) {
+      continue;
+    }
+
+    if (index > cursor) {
+      fragment.append(document.createTextNode(text.slice(cursor, index)));
+    }
+
+    const rubyEl = document.createElement('ruby');
+    rubyEl.append(document.createTextNode(base));
+    const rtEl = document.createElement('rt');
+    rtEl.textContent = ruby;
+    rubyEl.appendChild(rtEl);
+    fragment.appendChild(rubyEl);
+    cursor = index + base.length;
+  }
+
+  if (cursor < text.length) {
+    fragment.append(document.createTextNode(text.slice(cursor)));
+  }
+
+  if (!fragment.hasChildNodes()) {
+    fragment.append(document.createTextNode(text));
+  }
+
+  return fragment;
+}
+
+// 检测网关并初始化
+async function checkGatewayAndInit() {
+  updateDebug('', '检测本地网关...');
+  
+  const result = await checkGatewayStatus();
+  
+  if (result.running) {
+    gatewayConnected = true;
+    availableModels = result.models || ['kimi-2.5-coding'];
+    
+    updateDebug('', '✅ 网关已连接', `可用模型: ${availableModels.length} 个`);
+    
+    // 更新缓存统计
+    updateCacheStats();
+    
+    // 加载保存的模型设置
+    const saved = await chrome.storage.local.get(['apiModel']);
+    const selectedModel = saved.apiModel || availableModels[0] || 'kimi-2.5-coding';
+    
+    // 初始化分析器
+    analyzer = new TextAnalyzer('local', 'kimi', selectedModel);
+    
+    // 更新设置面板
+    updateModelSelect(availableModels, selectedModel);
+    updateConnectionStatus(true);
+    
+    // 注意：自动分析现在在 showPost 中处理，避免重复分析
+  } else {
+    gatewayConnected = false;
+    updateDebug('', '❌ 网关未连接', result.error || '请运行 ./setup.sh 启动服务');
+    updateConnectionStatus(false, result.error);
+  }
+}
+
+// 更新连接状态显示
+function updateConnectionStatus(connected: boolean, error?: string) {
+  const statusEl = document.getElementById('connectionStatus');
+  const saveBtn = document.getElementById('saveSettings');
+  const modelSelect = document.getElementById('modelSelectContainer');
+  
+  if (statusEl) {
+    if (connected) {
+      statusEl.innerHTML = '✅ <span style="color: #00ba7c;">本地网关已连接</span>';
+      statusEl.className = 'status-connected';
     } else {
-      document.getElementById('replyLoading')?.remove();
+      statusEl.innerHTML = `❌ <span style="color: #f4212e;">${escapeHtml(error || '网关未连接')}</span><br><small style="color: #888;">请运行: ./setup.sh</small>`;
+      statusEl.className = 'status-error';
     }
   }
+  
+  if (saveBtn) saveBtn.style.display = connected ? 'block' : 'none';
+  if (modelSelect) modelSelect.style.display = connected ? 'block' : 'none';
+}
 
-  /**
-   * 使用回复
-   */
-  private async useReply(text: string): Promise<void> {
+// 更新模型选择列表
+function updateModelSelect(models: string[], selectedModel: string) {
+  const modelEl = document.getElementById('apiModel') as HTMLSelectElement;
+  const hintEl = document.getElementById('modelHint');
+  
+  if (!modelEl) return;
+  
+  modelEl.innerHTML = '';
+  
+  models.forEach(modelId => {
+    const option = document.createElement('option');
+    option.value = modelId;
+    option.textContent = getModelDisplayName(modelId);
+    if (modelId === selectedModel) {
+      option.selected = true;
+    }
+    modelEl.appendChild(option);
+  });
+  
+  // 更新提示
+  if (hintEl) {
+    hintEl.textContent = getModelHint(modelEl.value);
+  }
+  
+  // 监听变化
+  modelEl.onchange = () => {
+    if (hintEl) {
+      hintEl.textContent = getModelHint(modelEl.value);
+    }
+  };
+}
+
+// 保存设置
+async function saveSettings() {
+  const modelEl = document.getElementById('apiModel') as HTMLSelectElement;
+  const selectedModel = modelEl?.value || 'kimi-2.5-coding';
+  
+  await chrome.storage.local.set({ apiModel: selectedModel });
+  
+  // 重新初始化分析器
+  if (gatewayConnected) {
+    analyzer = new TextAnalyzer('local', 'kimi', selectedModel);
+  }
+  
+  showSettings(false);
+  updateDebug('', '✅ 设置已保存', `模型: ${getModelDisplayName(selectedModel)}`);
+  
+  // 如果有当前帖子，重新分析
+  if (currentPost?.text && analyzer) {
+    analyzeText(currentPost.text, currentPost.url || '');
+  }
+}
+
+// 显示/隐藏设置
+function showSettings(show: boolean) {
+  const panel = document.getElementById('settingsPanel');
+  if (panel) {
+    panel.classList.toggle('hidden', !show);
+  }
+  
+  // 打开设置时重新检测网关和更新统计
+  if (show) {
+    checkGatewayAndInit();
+    updateQAStats();
+  }
+}
+
+// 监听 URL 变化
+let lastExtractedUrl: string | null = null;
+
+function setupUrlChangeListener() {
+  // 方法1: 监听标签页更新
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    if (changeInfo.url && tab.active && tab.url?.includes('/status/')) {
+      console.log('[Echo-X] Tab URL changed:', changeInfo.url);
+      // URL 变化时自动重新提取
+      setTimeout(() => extractPost(), 500); // 稍等片刻让页面加载
+    }
+  });
+  
+  // 方法2: 监听标签页切换
+  chrome.tabs.onActivated.addListener(() => {
+    setTimeout(() => extractPost(), 300);
+  });
+  
+  // 方法3: 定期检查（备用）
+  setInterval(async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) {
-        await chrome.tabs.sendMessage(tab.id, { type: 'FILL_REPLY', text });
-        this.showToast('已填入回复框');
+      if (tab?.url?.includes('/status/') && tab.url !== lastExtractedUrl) {
+        console.log('[Echo-X] URL changed (poll):', tab.url);
+        extractPost();
       }
-    } catch {
-      this.copyToClipboard(text);
-      this.showToast('已复制，请手动粘贴');
+    } catch (e) {
+      // 忽略错误
     }
-  }
-
-  // ========== AI API 调用 ==========
-
-  /**
-   * 调用 AI API (支持 OpenAI 和 Kimi)
-   */
-  private async callAI<T>(prompt: string, jsonResponse: boolean = false): Promise<T> {
-    const { apiProvider, apiKey, apiModel, apiBaseUrl } = this.settings;
-    
-    if (!apiKey) {
-      throw new Error('API Key not configured');
-    }
-
-    // 确定 API endpoint 和模型
-    let baseUrl: string;
-    let model: string;
-    
-    if (apiBaseUrl) {
-      // 使用自定义后端
-      baseUrl = apiBaseUrl;
-      model = apiModel;
-    } else if (apiProvider === 'kimi') {
-      // Kimi (Moonshot) API
-      baseUrl = 'https://api.moonshot.cn/v1';
-      model = apiModel.includes('moonshot') ? apiModel : 'moonshot-v1-8k';
-    } else {
-      // OpenAI API (默认)
-      baseUrl = 'https://api.openai.com/v1';
-      model = apiModel || 'gpt-4o-mini';
-    }
-
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: '你是语言学习助手，擅长语法纠正和自然表达。' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.5,
-        ...(jsonResponse && { response_format: { type: 'json_object' } })
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json() as { error?: { message?: string } };
-      throw new Error(error.error?.message || `API Error: ${response.status}`);
-    }
-
-    const data = await response.json() as { choices: [{ message: { content: string } }] };
-    const content = data.choices[0].message.content;
-    return jsonResponse ? JSON.parse(content) as T : content as unknown as T;
-  }
-
-  // ========== UI 工具 ==========
-
-  /**
-   * 显示/隐藏设置面板
-   */
-  private showSettings(show: boolean): void {
-    const panel = document.getElementById('settingsPanel');
-    if (panel) {
-      panel.classList.toggle('hidden', !show);
-    }
-  }
-
-  /**
-   * 显示空状态
-   */
-  private showEmptyState(): void {
-    document.getElementById('emptyState')?.classList.remove('hidden');
-    document.getElementById('loadingState')?.classList.add('hidden');
-    document.getElementById('mainContent')?.classList.add('hidden');
-  }
-
-  /**
-   * 显示/隐藏加载状态
-   */
-  private showLoading(show: boolean): void {
-    document.getElementById('loadingState')?.classList.toggle('hidden', !show);
-  }
-
-  /**
-   * 显示占位内容
-   */
-  private showPlaceholder(message: string): void {
-    const placeholder = `<p style="color: var(--text-secondary)">${message}</p>`;
-    const elements = ['translationText', 'tokenization', 'vocabulary', 'grammar', 'examples'];
-    elements.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.innerHTML = placeholder;
-    });
-  }
-
-  /**
-   * 格式化时间
-   */
-  private formatTime(timestamp: string): string {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    
-    if (diff < 3600000) {
-      const mins = Math.floor(diff / 60000);
-      return mins < 1 ? '刚刚' : `${mins}分钟前`;
-    }
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
-    if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`;
-    return date.toLocaleDateString('zh-CN');
-  }
-
-  /**
-   * 复制到剪贴板
-   */
-  private async copyToClipboard(text: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-      this.showToast('已复制');
-    } catch (err) {
-      console.error('Copy failed:', err);
-    }
-  }
-
-  /**
-   * 显示提示
-   */
-  private showToast(message: string): void {
-    const toast = document.createElement('div');
-    toast.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--accent);
-      color: white;
-      padding: 10px 20px;
-      border-radius: 20px;
-      font-size: 14px;
-      z-index: 1000;
-    `;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
-  }
-
-  /**
-   * HTML 转义
-   */
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
+  }, 2000); // 每 2 秒检查一次
+  
+  console.log('[Echo-X] URL change listener setup complete');
 }
 
-// 启动
-console.log('[Echo-X] Script loaded, waiting for DOM...');
-
-function start() {
-  console.log('[Echo-X] Starting...');
+// 提取帖子
+async function extractPost() {
   try {
-    const panel = new EchoXSidePanel();
-    panel.init().then(() => {
-      console.log('[Echo-X] Init success');
-    }).catch(err => {
-      console.error('[Echo-X] Init failed:', err);
-      const errorEl = document.getElementById('errorDetail');
-      if (errorEl) errorEl.textContent = '初始化失败: ' + err.message;
-    });
-  } catch (err) {
-    console.error('[Echo-X] Fatal error:', err);
-    const errorEl = document.getElementById('errorDetail');
-    if (errorEl) errorEl.textContent = '致命错误: ' + (err as Error).message;
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab?.url) {
+      updateDebug('', '错误', '无法获取当前页面');
+      return;
+    }
+    
+    const url = tab.url;
+    
+    // 检查是否是 X 帖子页面
+    if (!url.includes('/status/')) {
+      updateDebug(url, '不是帖子页面', '请打开具体帖子');
+      return;
+    }
+    
+    // 现在有了 URL 才更新调试信息
+    updateDebug(url, '提取中...');
+    
+    // 记录当前提取的 URL
+    lastExtractedUrl = url;
+    
+    if (!tab.id) {
+      updateDebug(url, '错误', '无法获取标签页ID');
+      return;
+    }
+    
+    // 直接执行提取代码
+    await injectAndExtract(tab.id, url);
+  } catch (e: any) {
+    updateDebug('', '异常', e.message);
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', start);
-} else {
-  start();
+// 尝试通过 content script 提取
+async function injectAndExtract(tabId: number, url: string) {
+  try {
+    updateDebug(url, '提取中...');
+    
+    // 首先尝试发送消息给 content script
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_CURRENT_POST' });
+      console.log('[Echo-X] Content script response:', response);
+      
+      if (response && response.success && response.data) {
+        showPost(response.data);
+        return;
+      } else if (response && !response.success) {
+        updateDebug(url, '提取失败', response.error);
+        return;
+      }
+    } catch (msgError) {
+      console.log('[Echo-X] Content script not loaded, falling back to executeScript');
+    }
+    
+    // 如果 content script 没有响应，使用 executeScript 作为后备
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (pageUrl: string) => {
+        try {
+          const articles = document.querySelectorAll('article');
+          if (articles.length === 0) {
+            return { success: false, error: 'No articles found' };
+          }
+          
+          // 从 URL 提取 status ID
+          const statusMatch = pageUrl.match(/\/status\/(\d+)/);
+          const statusId = statusMatch ? statusMatch[1] : null;
+          
+          // 找到匹配的 article
+          let article = articles[0]; // 默认第一个
+          
+          if (statusId) {
+            for (const art of articles) {
+              const links = art.querySelectorAll('a[href*="/status/"]');
+              for (const link of links) {
+                if (link.getAttribute('href')?.includes(statusId)) {
+                  article = art;
+                  break;
+                }
+              }
+            }
+          }
+          
+          // 判断是否是回复：检查是否有"回复给"的提示
+          const replyIndicator = document.querySelector('[data-testid="tweetReplyContext"], [aria-label*="回复"]');
+          const isReply = !!replyIndicator;
+          
+          // 提取作者
+          const authorLink = article.querySelector('a[role="link"][href^="/"]') as HTMLAnchorElement | null;
+          const href = authorLink?.getAttribute('href') || '';
+          const handle = href.split('/').pop() || 'unknown';
+          const displayNameEl = article.querySelector('[dir="ltr"] span');
+          const displayName = displayNameEl?.textContent || handle;
+          
+          // 提取时间
+          const timeEl = article.querySelector('time');
+          const timestamp = timeEl?.getAttribute('datetime') || new Date().toISOString();
+          
+          // 提取文本
+          let text = '';
+          const textContainer = article.querySelector('[data-testid="tweetText"]');
+          if (textContainer) {
+            text = textContainer.textContent || '';
+          } else {
+            const langDiv = article.querySelector('div[lang]');
+            if (langDiv) {
+              text = langDiv.textContent || '';
+            }
+          }
+          
+          if (!text) {
+            return { success: false, error: 'No text found' };
+          }
+          
+          return {
+            success: true,
+            data: {
+              url: pageUrl,
+              isReply,
+              author: { handle, displayName },
+              timestamp,
+              text: text.trim()
+            }
+          };
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+      args: [url]
+    });
+    
+    console.log('[Echo-X] Execute script results:', results);
+    
+    if (results && results[0] && results[0].result) {
+      const result = results[0].result;
+      if (result.success && result.data) {
+        showPost(result.data);
+      } else {
+        updateDebug(url, '提取失败', result.error);
+      }
+    } else {
+      updateDebug(url, '无返回结果');
+    }
+  } catch (e: any) {
+    updateDebug(url, '执行失败', e.message);
+  }
+}
+
+// 清空 AI 分析内容
+function clearAnalysis() {
+  const translationEl = document.getElementById('translationText');
+  if (translationEl) translationEl.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;padding:16px 0;">分析中...</div>';
+  
+  const tokenizationEl = document.getElementById('tokenization');
+  if (tokenizationEl) tokenizationEl.innerHTML = '';
+  
+  const vocabularyEl = document.getElementById('vocabulary');
+  if (vocabularyEl) vocabularyEl.innerHTML = '';
+  
+  const grammarEl = document.getElementById('grammar');
+  if (grammarEl) grammarEl.innerHTML = '';
+  
+  const suggestionsEl = document.getElementById('suggestions');
+  if (suggestionsEl) suggestionsEl.innerHTML = '';
+}
+
+// 显示帖子
+function showPost(data: any) {
+  console.log('[Echo-X] Showing post:', data);
+  
+  if (!data || !data.text) {
+    updateDebug('', '错误', '没有文本内容');
+    return;
+  }
+  
+  // 清空之前的 AI 分析内容
+  clearAnalysis();
+  
+  // 标记是原帖还是回复
+  const isReply = data.isReply;
+  if (isReply) {
+    console.log('[Echo-X] This is a REPLY, not the original post');
+  }
+  
+  currentPost = data;
+  
+  // 隐藏空状态
+  const emptyState = document.getElementById('emptyState');
+  if (emptyState) emptyState.classList.add('hidden');
+  
+  // 显示主内容
+  const mainContent = document.getElementById('mainContent');
+  if (mainContent) mainContent.classList.remove('hidden');
+  
+  // 填充原文（带朗读按钮）
+  const originalText = document.getElementById('originalText');
+  if (originalText) {
+    originalText.innerHTML = '';
+    
+    // 添加标签显示是原帖还是回复
+    const typeLabel = document.createElement('div');
+    typeLabel.style.cssText = 'font-size: 11px; color: var(--accent); margin-bottom: 8px; font-weight: 600;';
+    typeLabel.textContent = isReply ? '💬 回复内容' : '📝 原帖内容';
+    originalText.appendChild(typeLabel);
+    
+    // 创建文本容器
+    const textSpan = document.createElement('span');
+    textSpan.textContent = data.text;
+    originalText.appendChild(textSpan);
+    
+    // 添加朗读按钮（如果支持）- 初始使用默认语言，分析后会更新
+    if (isSpeechSupported()) {
+      const speechBtn = createSpeechButton(data.text, getCurrentLanguage());
+      speechBtn.classList.add('original-speech-btn');
+      originalText.appendChild(speechBtn);
+    }
+  }
+  
+  // 填充作者信息
+  const authorEl = document.getElementById('authorInfo');
+  if (authorEl && data.author) {
+    authorEl.textContent = (isReply ? '💬 @' : '📝 @') + data.author.handle;
+  }
+  
+  updateDebug(data.author?.handle || '', '原文显示成功');
+  
+  // 加载当前帖子的 Q&A 历史
+  loadQAHistory();
+  
+  // 检查是否需要自动分析
+  // 如果网关已连接且分析器已初始化，则自动分析
+  if (gatewayConnected) {
+    if (!analyzer) {
+      // 如果分析器未初始化，先初始化
+      initAnalyzerAndAnalyze(data.text, data.url || '', data.isReply || false);
+    } else {
+      // 分析器已存在，直接分析
+      analyzeText(data.text, data.url || '', data.isReply || false);
+    }
+  } else {
+    updateDebug('', '就绪', '请运行 ./setup.sh 启动本地网关');
+  }
+}
+
+// 初始化分析器并分析
+async function initAnalyzerAndAnalyze(text: string, url: string, isReply: boolean = false) {
+  const saved = await chrome.storage.local.get(['apiModel']);
+  const selectedModel = saved.apiModel || availableModels[0] || 'kimi-2.5-coding';
+  analyzer = new TextAnalyzer('local', 'kimi', selectedModel);
+  analyzeText(text, url, isReply);
+}
+
+// AI 分析
+async function analyzeText(text: string, url: string, isReply: boolean = false) {
+  if (!analyzer || !gatewayConnected) {
+    updateDebug('', '跳过分析', '本地网关未连接');
+    return;
+  }
+  
+  // 检查缓存（除非强制刷新）
+  if (!forceRefresh) {
+    const cached = await getCachedAnalysis(text, isReply);
+    if (cached) {
+      console.log('[Echo-X] Using cached analysis');
+      const cachedResult = cached.result as AnalysisResult;
+      
+      // 恢复检测到的语言
+      if (cachedResult.detectedLanguage) {
+        setDetectedLanguage(cachedResult.detectedLanguage);
+        updateAllSpeechButtonsLanguage(cachedResult.detectedLanguage);
+      }
+      
+      showAnalysis(cachedResult);
+      const date = new Date(cached.timestamp).toLocaleString();
+      updateDebug('', `✅ 已加载缓存 (${date})  |  💡 Shift+刷新 强制重新分析`);
+      updateCacheStats();
+      return;
+    }
+  }
+  
+  updateDebug('', 'AI 分析中...');
+  showAnalysisLoading(true);
+  
+  try {
+    const result = await analyzer.analyze(text, 'zh');
+    
+    // 设置检测到的语言（用于朗读）
+    if (result.detectedLanguage) {
+      setDetectedLanguage(result.detectedLanguage);
+      updateAllSpeechButtonsLanguage(result.detectedLanguage);
+      console.log('[Echo-X] Detected language:', result.detectedLanguage);
+    }
+    
+    showAnalysis(result);
+    
+    // 保存到缓存
+    const model = (await chrome.storage.local.get(['apiModel'])).apiModel || 'kimi-2.5-coding';
+    await saveCachedAnalysis(text, url, result, model, isReply);
+    
+    updateDebug('', forceRefresh ? '✅ 分析完成 (强制刷新已保存到缓存)' : '✅ 分析完成');
+    updateCacheStats();
+  } catch (e: any) {
+    console.error('[Echo-X] Analysis error:', e);
+    const errorMsg = e.message || '未知错误';
+    updateDebug('', '❌ 分析失败', errorMsg);
+    showAnalysisError(errorMsg);
+  } finally {
+    showAnalysisLoading(false);
+    forceRefresh = false;  // 重置强制刷新标志
+  }
+}
+
+// 显示分析结果
+function showAnalysis(result: AnalysisResult) {
+  // 翻译
+  const translationEl = document.getElementById('translationText');
+  if (translationEl) {
+    translationEl.innerHTML = `
+      <div style="color:var(--text-secondary);font-size:12px;margin-bottom:4px;">难度: ${escapeHtml(result.difficulty || '')}</div>
+      <div>${escapeHtml(result.translation || '')}</div>
+    `;
+  }
+  
+  // 分词（带朗读按钮）
+  const tokenizationEl = document.getElementById('tokenization');
+  if (tokenizationEl && result.tokens) {
+    tokenizationEl.innerHTML = '';
+    
+    result.tokens.forEach(t => {
+      const tokenDiv = document.createElement('div');
+      tokenDiv.className = 'token';
+      
+      // 单词和朗读按钮容器
+      const wordContainer = document.createElement('div');
+      wordContainer.className = 'token-word-container';
+      
+      const wordSpan = document.createElement('span');
+      wordSpan.className = 'token-word';
+      wordSpan.textContent = t.word;
+      wordContainer.appendChild(wordSpan);
+      
+      // 添加朗读按钮（如果支持）- 使用检测到的语言
+      if (isSpeechSupported()) {
+        const speechBtn = createSpeechButton(t.word, getCurrentLanguage());
+        speechBtn.classList.add('token-speech-btn');
+        wordContainer.appendChild(speechBtn);
+      }
+      
+      tokenDiv.appendChild(wordContainer);
+      
+      // 其他信息
+      if (t.reading) {
+        const readingSpan = document.createElement('span');
+        readingSpan.className = 'token-reading';
+        readingSpan.textContent = t.reading;
+        tokenDiv.appendChild(readingSpan);
+      }
+      
+      const posSpan = document.createElement('span');
+      posSpan.className = 'token-pos';
+      posSpan.textContent = t.pos;
+      tokenDiv.appendChild(posSpan);
+      
+      const meaningSpan = document.createElement('span');
+      meaningSpan.className = 'token-meaning';
+      meaningSpan.textContent = t.meaning;
+      tokenDiv.appendChild(meaningSpan);
+      
+      tokenizationEl.appendChild(tokenDiv);
+    });
+  }
+  
+  // 生词（带朗读按钮）
+  const vocabularyEl = document.getElementById('vocabulary');
+  const vocabCount = document.getElementById('vocabCount');
+  if (vocabularyEl && result.vocabulary) {
+    if (vocabCount) vocabCount.textContent = String(result.vocabulary.length);
+    vocabularyEl.innerHTML = '';
+    
+    result.vocabulary.forEach(v => {
+      const vocabDiv = document.createElement('div');
+      vocabDiv.className = 'vocab-item';
+      
+      // 单词和朗读按钮
+      const wordDiv = document.createElement('div');
+      wordDiv.className = 'vocab-word-container';
+      
+      const wordSpan = document.createElement('span');
+      wordSpan.className = 'vocab-word';
+      wordSpan.textContent = v.word;
+      wordDiv.appendChild(wordSpan);
+      
+      // 朗读按钮
+      if (isSpeechSupported()) {
+        const speechBtn = createSpeechButton(v.word, getCurrentLanguage());
+        speechBtn.classList.add('vocab-speech-btn');
+        wordDiv.appendChild(speechBtn);
+      }
+      
+      const levelSpan = document.createElement('span');
+      levelSpan.className = `vocab-level ${getLevelClass(v.level)}`;
+      levelSpan.textContent = v.level;
+      wordDiv.appendChild(levelSpan);
+      
+      vocabDiv.appendChild(wordDiv);
+      
+      // 释义
+      const meaningDiv = document.createElement('div');
+      meaningDiv.className = 'vocab-meaning';
+      meaningDiv.textContent = v.meaning;
+      vocabDiv.appendChild(meaningDiv);
+      
+      // 例句（带汉字注音、翻译和朗读）
+      const exampleDiv = document.createElement('div');
+      exampleDiv.className = 'vocab-example';
+      
+      // 例句原文（汉字带注音）和朗读按钮
+      const exampleTextRow = document.createElement('div');
+      exampleTextRow.className = 'vocab-example-text';
+      
+      // 如果有读音标注，显示带注音的格式
+      if (v.exampleReading) {
+        // 使用ルビ形式显示（汉字上方标注读音）
+        const rubyContainer = document.createElement('span');
+        rubyContainer.className = 'vocab-ruby-text';
+        renderRubyText(rubyContainer, v.example, v.exampleReading);
+        exampleTextRow.appendChild(rubyContainer);
+      } else {
+        const exampleText = document.createElement('span');
+        exampleText.textContent = v.example;
+        exampleTextRow.appendChild(exampleText);
+      }
+      
+      if (isSpeechSupported() && v.example) {
+        const exampleSpeechBtn = createSpeechButton(v.example, getCurrentLanguage());
+        exampleSpeechBtn.classList.add('example-speech-btn');
+        exampleTextRow.appendChild(exampleSpeechBtn);
+      }
+      
+      exampleDiv.appendChild(exampleTextRow);
+      
+      // 中文翻译
+      if (v.exampleTranslation) {
+        const translationDiv = document.createElement('div');
+        translationDiv.className = 'vocab-example-translation';
+        translationDiv.textContent = v.exampleTranslation;
+        exampleDiv.appendChild(translationDiv);
+      }
+      
+      vocabDiv.appendChild(exampleDiv);
+      vocabularyEl.appendChild(vocabDiv);
+    });
+  }
+  
+  // 语法（带朗读按钮和平假名注音）
+  const grammarEl = document.getElementById('grammar');
+  if (grammarEl && result.grammar) {
+    grammarEl.innerHTML = '';
+    
+    result.grammar.forEach(g => {
+      const grammarDiv = document.createElement('div');
+      grammarDiv.className = 'grammar-item';
+      
+      // 语法结构
+      const patternDiv = document.createElement('div');
+      patternDiv.className = 'grammar-pattern';
+      patternDiv.textContent = g.pattern;
+      
+      // 语法结构朗读按钮
+      if (isSpeechSupported()) {
+        const patternSpeechBtn = createSpeechButton(g.pattern, getCurrentLanguage());
+        patternSpeechBtn.classList.add('grammar-speech-btn');
+        patternDiv.appendChild(patternSpeechBtn);
+      }
+      
+      grammarDiv.appendChild(patternDiv);
+      
+      // 解释
+      const explanationDiv = document.createElement('div');
+      explanationDiv.className = 'grammar-explanation';
+      explanationDiv.textContent = g.explanation;
+      grammarDiv.appendChild(explanationDiv);
+      
+      // 例句（带平假名注音和朗读）
+      const exampleDiv = document.createElement('div');
+      exampleDiv.className = 'grammar-example';
+      
+      // 例句原文（汉字带注音）
+      if (g.exampleReading) {
+        // 使用ルビ形式显示
+        const rubyContainer = document.createElement('span');
+        rubyContainer.className = 'grammar-ruby-text';
+        renderRubyText(rubyContainer, g.example, g.exampleReading);
+        exampleDiv.appendChild(rubyContainer);
+      } else {
+        const exampleText = document.createElement('span');
+        exampleText.className = 'grammar-example-text';
+        exampleText.textContent = g.example;
+        exampleDiv.appendChild(exampleText);
+      }
+      
+      // 例句朗读按钮
+      if (isSpeechSupported() && g.example) {
+        const exampleSpeechBtn = createSpeechButton(g.example, getCurrentLanguage());
+        exampleSpeechBtn.classList.add('example-speech-btn');
+        exampleDiv.appendChild(exampleSpeechBtn);
+      }
+      
+      grammarDiv.appendChild(exampleDiv);
+      grammarEl.appendChild(grammarDiv);
+    });
+  }
+  
+  // 建议
+  const suggestionsEl = document.getElementById('suggestions');
+  if (suggestionsEl && result.suggestions) {
+    suggestionsEl.innerHTML = result.suggestions.map(s => `
+      <div class="suggestion-item">💡 ${escapeHtml(s)}</div>
+    `).join('');
+  }
+}
+
+// 渲染带注音的文本（Ruby 标注）
+function renderRubyText(container: HTMLElement, text: string, reading: string): void {
+  clearElement(container);
+  container.appendChild(buildRubyFragment(text, reading));
+}
+
+// 获取等级样式
+function getLevelClass(level: string): string {
+  const levelMap: Record<string, string> = {
+    'N5': 'level-n5', 'N4': 'level-n4', 'N3': 'level-n3',
+    'N2': 'level-n2', 'N1': 'level-n1',
+    'A1': 'level-n5', 'A2': 'level-n4', 'B1': 'level-n3',
+    'B2': 'level-n2', 'C1': 'level-n2', 'C2': 'level-n1',
+    'basic': 'level-n5', 'intermediate': 'level-n3', 'advanced': 'level-n1',
+    '初级': 'level-n5', '中级': 'level-n3', '高级': 'level-n1'
+  };
+  return levelMap[level] || 'level-n3';
+}
+
+// 显示分析加载状态
+function showAnalysisLoading(loading: boolean) {
+  const loadingEl = document.getElementById('analysisLoading');
+  if (loadingEl) {
+    loadingEl.style.display = loading ? 'flex' : 'none';
+  }
+}
+
+// 显示分析错误
+function showAnalysisError(error: string) {
+  const translationEl = document.getElementById('translationText');
+  if (translationEl) {
+    translationEl.textContent = `AI 分析失败: ${error}`;
+    translationEl.setAttribute('style', 'color:#f00;');
+  }
+}
+
+// 生成回复 (rewrite / qa 两种模式)
+async function generateReply() {
+  if (!currentPost?.text) {
+    updateDebug('', '错误', '没有帖子内容');
+    return;
+  }
+  
+  if (!analyzer || !gatewayConnected) {
+    updateDebug('', '错误', '本地网关未连接，请运行 ./setup.sh');
+    return;
+  }
+  
+  const inputEl = document.getElementById('replyInput') as HTMLTextAreaElement;
+  if (!inputEl?.value.trim()) {
+    updateDebug('', '错误', '请输入内容');
+    return;
+  }
+  
+  const modeBtn = document.querySelector('.reply-mode-btn.active') as HTMLElement;
+  const mode = modeBtn?.dataset.mode || 'rewrite';
+  
+  updateDebug('', mode === 'rewrite' ? 'Proofreading...' : '生成回答中...');
+  showReplyLoading(true);
+  
+  try {
+    let result;
+    
+    if (mode === 'rewrite') {
+      // Rewrite 模式：proofread 用户的英文输入
+      result = await analyzer.rewriteProofread(
+        currentPost.text,
+        inputEl.value
+      );
+    } else {
+      // QA 模式：回答问题，可以引用上下文
+      result = await analyzer.answerQuestion(
+        currentPost.text,
+        inputEl.value,
+        currentPost.author?.handle || 'author'
+      );
+      
+      // 保存到 Q&A 历史（不受强制刷新影响）
+      try {
+        const model = (await chrome.storage.local.get(['apiModel'])).apiModel || 'kimi-2.5-coding';
+        await saveQARecord({
+          postUrl: currentPost.url || window.location.href,
+          postText: currentPost.text.substring(0, 200),
+          question: inputEl.value,
+          answer: result.answer,
+          references: result.references,
+          model
+        });
+        console.log('[Echo-X] QA saved to history');
+        
+        // 刷新 QA 历史显示
+        await loadQAHistory();
+        await updateQAStats();
+      } catch (e) {
+        console.error('[Echo-X] Failed to save QA:', e);
+      }
+    }
+    
+    showGeneratedReply(result, mode);
+    inputEl.value = '';
+    updateDebug('', mode === 'rewrite' ? '✅ Proofread 完成' : '✅ 回答已生成');
+  } catch (e: any) {
+    updateDebug('', '生成失败', e.message);
+  } finally {
+    showReplyLoading(false);
+  }
+}
+
+// 显示生成的回复 (rewrite 或 qa 模式)
+function showGeneratedReply(result: any, mode: string = 'rewrite') {
+  const container = document.getElementById('generatedReplies');
+  if (!container) return;
+  
+  const replyEl = document.createElement('div');
+  replyEl.className = 'reply-item';
+  
+  if (mode === 'rewrite') {
+    const textToCopy = result.improvedText || result.polishedReply || '';
+
+    appendTextLine(replyEl, '📝 改进版本', 'reply-section-title');
+
+    const polishedEl = document.createElement('div');
+    polishedEl.className = 'reply-polished';
+    polishedEl.textContent = textToCopy;
+    replyEl.appendChild(polishedEl);
+
+    if (result.issues?.length) {
+      appendTextLine(replyEl, '⚠️ 发现的问题', 'reply-section-title');
+
+      const issuesEl = document.createElement('div');
+      issuesEl.className = 'reply-issues';
+
+      result.issues.forEach((issue: any) => {
+        const issueEl = document.createElement('div');
+        issueEl.className = 'issue-item';
+        appendTextLine(issueEl, `❌ ${issue.original || ''}`, 'issue-original');
+        appendTextLine(issueEl, `✅ ${issue.suggestion || ''}`, 'issue-suggestion');
+        appendTextLine(issueEl, `💡 ${issue.explanation || ''}`, 'issue-explanation');
+        issuesEl.appendChild(issueEl);
+      });
+
+      replyEl.appendChild(issuesEl);
+    }
+
+    appendTextLine(replyEl, '📚 改进说明', 'reply-section-title');
+    appendTextLine(replyEl, result.explanation || '', 'reply-explanation');
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'reply-actions';
+    actionsEl.appendChild(createActionButton('📋 复制改进版本', () => {
+      navigator.clipboard.writeText(textToCopy);
+      updateDebug('', '已复制改进版本');
+    }));
+    replyEl.appendChild(actionsEl);
+  } else {
+    appendTextLine(replyEl, '💬 回答', 'reply-section-title');
+
+    const answerEl = document.createElement('div');
+    answerEl.className = 'reply-answer';
+    answerEl.textContent = result.answer || '';
+    replyEl.appendChild(answerEl);
+
+    if (result.references?.length) {
+      appendTextLine(replyEl, '📖 参考引用', 'reply-section-title');
+
+      const referencesEl = document.createElement('div');
+      referencesEl.className = 'reply-references';
+
+      result.references.forEach((ref: string) => {
+        appendTextLine(referencesEl, `• ${ref}`, 'reference-item');
+      });
+
+      replyEl.appendChild(referencesEl);
+    }
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'reply-actions';
+    actionsEl.appendChild(createActionButton('📋 复制回答', () => {
+      navigator.clipboard.writeText(result.answer || '');
+      updateDebug('', '已复制回答');
+    }));
+    replyEl.appendChild(actionsEl);
+  }
+  
+  container.insertBefore(replyEl, container.firstChild);
+}
+
+// 显示回复加载状态
+function showReplyLoading(loading: boolean) {
+  const btn = document.getElementById('generateReplyBtn') as HTMLButtonElement;
+  if (btn) btn.disabled = loading;
+}
+
+// 更新调试信息
+function updateDebug(url: string, status: string, error?: string) {
+  const urlEl = document.getElementById('debugUrl');
+  const statusEl = document.getElementById('debugStatus');
+  const errorEl = document.getElementById('debugError');
+  
+  if (urlEl) urlEl.textContent = 'URL: ' + (url || '-') + ' | ' + new Date().toLocaleTimeString();
+  if (statusEl) statusEl.textContent = '状态: ' + status;
+  if (errorEl) errorEl.textContent = error ? '错误: ' + error : '';
+  
+  console.log('[Echo-X Debug]', { url, status, error });
 }
