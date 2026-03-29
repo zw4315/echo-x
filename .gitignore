@@ -22,3 +22,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Sub-repositories
+markdownload-extension-updated/
+x-thread-summarizer/
