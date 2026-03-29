@@ -1,0 +1,1088 @@
+:root {
+  --bg-primary: #0f0f0f;
+  --bg-secondary: #16181c;
+  --bg-tertiary: #202327;
+  --bg-card: #1e1e1e;
+  --text-primary: #e7e9ea;
+  --text-secondary: #71767b;
+  --accent: #1d9bf0;
+  --accent-hover: #1a8cd8;
+  --border: #2f3336;
+  --success: #00ba7c;
+  --warning: #ffad1f;
+  --error: #f4212e;
+  --radius: 8px;
+  --spacing: 12px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 头部 */
+.header {
+  position: sticky;
+  top: 0;
+  padding: 8px var(--spacing);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 100;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+/* API Key 输入框 */
+.api-key-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-key-input-wrapper input {
+  flex: 1;
+}
+
+.toggle-visibility-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.toggle-visibility-btn:hover {
+  background: var(--bg-secondary);
+}
+
+/* 连接状态样式 */
+.status-checking,
+.status-connected,
+.status-error {
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+.status-checking {
+  background: rgba(255, 173, 31, 0.1);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.status-connected {
+  background: rgba(0, 186, 124, 0.1);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.status-error {
+  background: rgba(244, 33, 46, 0.1);
+  border: 1px solid var(--error);
+  color: var(--error);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.status-error code {
+  background: rgba(255,255,255,0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.refresh-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: var(--spacing);
+}
+
+/* 主内容 */
+.main-content {
+  padding: var(--spacing);
+}
+
+/* 区块 */
+.section {
+  margin-bottom: 16px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.section-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.text-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.text-btn:hover {
+  background: rgba(29, 155, 240, 0.1);
+}
+
+.badge {
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+/* 内容卡片 */
+.content-card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.original-text {
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.translation-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+/* 分词 */
+.tokenization {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.token {
+  display: inline-flex;
+  flex-direction: column;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+}
+
+.token-word {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.token-reading {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.token-pos {
+  font-size: 10px;
+  color: var(--accent);
+  background: rgba(29, 155, 240, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.token-meaning {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* 生词 */
+.vocabulary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vocab-item {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+}
+
+.vocab-word {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.vocab-level {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+.level-n5 { background: #22c55e; color: white; }
+.level-n4 { background: #3b82f6; color: white; }
+.level-n3 { background: #f59e0b; color: white; }
+.level-n2 { background: #ef4444; color: white; }
+.level-n1 { background: #8b5cf6; color: white; }
+
+.vocab-meaning {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-top: 6px;
+}
+
+.vocab-example {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  font-style: italic;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
+/* 语法 */
+.grammar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grammar-item {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 10px;
+  border-left: 3px solid var(--accent);
+}
+
+.grammar-pattern {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.grammar-explanation {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.grammar-example {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  font-style: italic;
+}
+
+/* 建议 */
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestion-item {
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+/* 回复助手 */
+.reply-section {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.reply-options {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.reply-tone-btn {
+  flex: 1;
+  min-width: 60px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reply-tone-btn.active,
+.reply-tone-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.reply-input {
+  width: 100%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.reply-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.reply-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.generate-btn {
+  padding: 8px 20px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.generate-btn:hover {
+  background: var(--accent-hover);
+}
+
+.generate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 生成的回复 */
+.generated-replies {
+  margin-top: 12px;
+}
+
+.reply-item {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+}
+
+.reply-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 12px 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reply-section-title:first-child {
+  margin-top: 0;
+}
+
+.reply-answer {
+  color: var(--text-primary);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.reply-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.issue-item {
+  background: rgba(244, 33, 46, 0.05);
+  border-left: 3px solid var(--error);
+  padding: 8px 12px;
+  border-radius: 0 6px 6px 0;
+}
+
+.issue-original {
+  color: var(--error);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.issue-suggestion {
+  color: var(--success);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.issue-explanation {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.reply-references {
+  background: rgba(29, 155, 240, 0.05);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.reference-item {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+/* 朗读按钮 */
+.speech-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+.speech-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.speech-btn.speaking {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 原文朗读按钮 */
+.original-speech-btn {
+  width: 28px;
+  height: 28px;
+  margin-left: 12px;
+}
+
+/* 分词朗读按钮 */
+.token-word-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.token-speech-btn {
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.token:hover .token-speech-btn {
+  opacity: 1;
+}
+
+.token-speech-btn:hover {
+  opacity: 1 !important;
+}
+
+/* 重点词汇朗读按钮 */
+.vocab-word-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vocab-speech-btn {
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+}
+
+.vocab-item:hover .vocab-speech-btn {
+  opacity: 1;
+}
+
+.vocab-example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.vocab-example-reading {
+  color: var(--accent);
+  font-size: 13px;
+  font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 1.4;
+}
+
+.vocab-example-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vocab-example-translation {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* Q&A 历史 */
+.qa-history-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.qa-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.qa-history-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.qa-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.qa-history-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+.qa-history-item {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+
+.qa-history-item:hover {
+  border-color: var(--accent);
+}
+
+.qa-history-question {
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.qa-history-answer {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.qa-history-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.qa-delete-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.qa-delete-btn:hover {
+  opacity: 1;
+  background: rgba(244, 33, 46, 0.1);
+}
+
+.example-speech-btn {
+  width: 18px;
+  height: 18px;
+  opacity: 0.5;
+}
+
+.vocab-example:hover .example-speech-btn,
+.grammar-example:hover .example-speech-btn {
+  opacity: 1;
+}
+
+/* 语法部分 */
+.grammar-pattern {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grammar-speech-btn {
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+}
+
+.grammar-item:hover .grammar-speech-btn {
+  opacity: 1;
+}
+
+.grammar-example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.grammar-example-reading {
+  color: var(--accent);
+  font-size: 13px;
+  font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 1.4;
+}
+
+/* Ruby 标注样式（汉字上方注音） */
+.vocab-ruby-text,
+.grammar-ruby-text {
+  font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 2;
+}
+
+.vocab-ruby-text ruby,
+.grammar-ruby-text ruby {
+  ruby-align: center;
+}
+
+.vocab-ruby-text rt,
+.grammar-ruby-text rt {
+  font-size: 10px;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.grammar-example-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reply-mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.reply-mode-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.reply-mode-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* 文本选择引用弹出按钮 */
+.selection-popup {
+  position: fixed;
+  z-index: 10000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  transform: translateY(5px);
+}
+
+.selection-popup.show {
+  transform: translateY(0);
+}
+
+.selection-quote-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(29, 155, 240, 0.4);
+  transition: all 0.2s;
+}
+
+.selection-quote-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(29, 155, 240, 0.5);
+}
+
+.selection-quote-btn svg {
+  flex-shrink: 0;
+}
+
+/* 选中文本的高亮样式 */
+::selection {
+  background: rgba(29, 155, 240, 0.3);
+  color: var(--text-primary);
+}
+
+.reply-polished {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.reply-translation {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.reply-explanation {
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(29, 155, 240, 0.1);
+  border-radius: 4px;
+}
+
+.reply-errors {
+  font-size: 12px;
+  color: var(--error);
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(244, 33, 46, 0.1);
+  border-radius: 4px;
+}
+
+.reply-errors ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+
+.reply-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.reply-copy-btn,
+.reply-use-btn {
+  flex: 1;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reply-copy-btn:hover,
+.reply-use-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* 设置面板 */
+.settings-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: 200;
+  overflow-y: auto;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: var(--spacing);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-primary);
+}
+
+.settings-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.icon-btn:hover {
+  color: var(--text-primary);
+}
+
+.settings-content {
+  padding: var(--spacing);
+}
+
+.setting-item {
+  margin-bottom: 20px;
+}
+
+.setting-item label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.setting-item input,
+.setting-item select {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.setting-item input:focus,
+.setting-item select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.setting-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.primary-btn:hover {
+  background: var(--accent-hover);
+}
+
+.secondary-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 10px;
+}
+
+.secondary-btn:hover {
+  background: var(--border);
+}
+
+.verify-success {
+  background: rgba(0, 186, 124, 0.15);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.verify-error {
+  background: rgba(244, 33, 46, 0.15);
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
+/* 工具类 */
+.hidden {
+  display: none !important;
+}
+
+.bottom-spacer {
+  height: 40px;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
+}

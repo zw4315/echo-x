@@ -3,95 +3,70 @@
 
 console.log('[Echo-X] Content script loaded!');
 
-// 跟踪用户最后交互的推文
-let lastInteractedTweet: Element | null = null;
-
-// 跟踪当前页面 URL
-let currentUrl = window.location.href;
-
-// 监听 URL 变化（处理点击回复后的页面跳转）
-function observeUrlChanges() {
-  // 使用 MutationObserver 监听 URL 变化
-  const observer = new MutationObserver(() => {
-    if (window.location.href !== currentUrl) {
-      console.log('[Echo-X] URL changed:', currentUrl, '->', window.location.href);
-      currentUrl = window.location.href;
-      lastInteractedTweet = null; // 重置，因为页面已变化
-    }
-  });
-  
-  observer.observe(document.body, { childList: true, subtree: true });
-  
-  // 同时监听 popstate 事件（浏览器前进/后退）
-  window.addEventListener('popstate', () => {
-    console.log('[Echo-X] URL changed via popstate:', window.location.href);
-    currentUrl = window.location.href;
-    lastInteractedTweet = null;
-  });
-}
-
-// 启动 URL 监听
-observeUrlChanges();
-
-// 监听点击事件，记录用户点击的推文
-document.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  
-  // 查找点击位置最近的 article（推文）
-  const article = target.closest('article');
-  if (article) {
-    lastInteractedTweet = article;
-    console.log('[Echo-X] User clicked on tweet:', article);
-  }
-}, true);
-
-// 监听输入框聚焦，记录用户正在回复的推文
-document.addEventListener('focusin', (e) => {
-  const target = e.target as HTMLElement;
-  
-  // 检查是否是回复输入框
-  const isReplyBox = target.matches('[data-testid="tweetTextarea_0"]') ||
-                     target.closest('[data-testid="tweetTextarea_0"]');
-  
-  if (isReplyBox) {
-    // 找到这个回复对应的推文
-    // X.com 的结构：回复框通常在推文下方的某个位置
-    // 我们需要向上查找最近的 article，或者在页面中找到对应的推文
-    const replyContainer = target.closest('div[role="dialog"]') || 
-                          target.closest('div[data-testid="cellInnerDiv"]');
-    
-    if (replyContainer) {
-      // 在回复容器中查找推文
-      const article = replyContainer.querySelector('article');
-      if (article) {
-        lastInteractedTweet = article;
-        console.log('[Echo-X] User focusing reply box for tweet:', article);
-      }
-    }
-  }
-});
-
-/**
- * 检查是否在有效的帖子页面
- */
-function isValidPostPage(): boolean {
-  const url = window.location.href;
-  return (url.includes('x.com/') || url.includes('twitter.com/')) && 
-         url.includes('/status/');
-}
-
-/**
- * 从 URL 提取帖子 ID
- */
+// 从 URL 提取帖子 ID
 function extractPostId(url: string): string | null {
   const match = url.match(/\/status\/(\d+)/);
   return match ? match[1] : null;
 }
 
-/**
- * 提取推文数据
- */
-function extractTweetData(article: Element): any {
+// 检查是否是有效的帖子页面
+function isValidPostPage(): boolean {
+  const url = window.location.href;
+  return url.includes('/status/') || 
+         (url.includes('x.com') && url.includes('/status/')) ||
+         url.includes('/status/');
+}
+
+// 判断是否是回复页面
+function isReplyUrl(): boolean {
+  return false; // 简化处理，每个 status 页面都是独立的
+}
+
+// 获取目标推文
+function getTargetTweet(): { element: Element | null; isReply: boolean } {
+  const articles = document.querySelectorAll('article');
+  
+  if (articles.length === 0) {
+    return { element: null, isReply: false };
+  }
+  
+  // 从 URL 获取当前 status ID
+  const currentUrl = window.location.href;
+  const statusId = extractPostId(currentUrl);
+  
+  if (!statusId) {
+    console.log('[Echo-X] Cannot extract status ID from URL, using first article');
+    return { element: articles[0], isReply: false };
+  }
+  
+  // 遍历所有 article，找到包含当前 status ID 链接的那个
+  for (const article of articles) {
+    const links = article.querySelectorAll('a[href*="/status/"]');
+    for (const link of links) {
+      const href = link.getAttribute('href') || '';
+      if (href.includes(statusId)) {
+        // 判断是否是回复
+        const replyIndicator = article.querySelector('[data-testid="tweetReplyContext"]') ||
+                               document.querySelector('[data-testid="tweetReplyContext"]');
+        const isReply = !!replyIndicator;
+        
+        console.log('[Echo-X] Found matching article for status ID:', statusId, 'isReply:', isReply);
+        return { element: article, isReply };
+      }
+    }
+  }
+  
+  // 如果没有找到匹配的 article，回退到第一个
+  console.log('[Echo-X] No matching article found for status ID:', statusId, 'using first article');
+  
+  const replyIndicator = document.querySelector('[data-testid="tweetReplyContext"], [aria-label*="回复"]');
+  const isReply = !!replyIndicator;
+  
+  return { element: articles[0], isReply };
+}
+
+// 提取推文数据
+function extractTweetData(article: Element): { author: { handle: string; displayName: string }; timestamp: string; text: string } | null {
   try {
     // 提取作者信息
     const authorLink = article.querySelector('a[role="link"][href^="/"]') as HTMLAnchorElement | null;
@@ -132,72 +107,8 @@ function extractTweetData(article: Element): any {
   }
 }
 
-/**
- * 判断当前 URL 是否是回复页面
- * 在 X 上，点击回复后 URL 会变成回复的独立链接
- */
-function isReplyUrl(): boolean {
-  // const url = window.location.href;
-  // 如果是 status 页面且不是原帖作者的链接，则是回复
-  // 或者简单判断：有多个 article 时第一个可能是原帖，后续是回复
-  // 但更准确的是：URL 中的 status ID 对应的推文
-  return false; // 简化处理，因为每个 status 页面都是独立的
-}
-
-/**
- * 获取当前应该提取的推文
- * 通过 URL 中的 status ID 匹配正确的 article
- */
-function getTargetTweet(): { element: Element | null; isReply: boolean } {
-  const articles = document.querySelectorAll('article');
-  
-  if (articles.length === 0) {
-    return { element: null, isReply: false };
-  }
-  
-  // 从 URL 获取当前 status ID
-  const currentUrl = window.location.href;
-  const statusId = extractPostId(currentUrl);
-  
-  if (!statusId) {
-    // 如果无法提取 status ID，回退到第一个 article
-    console.log('[Echo-X] Cannot extract status ID from URL, using first article');
-    return { element: articles[0], isReply: false };
-  }
-  
-  // 遍历所有 article，找到包含当前 status ID 链接的那个
-  for (const article of articles) {
-    // 查找 article 中是否有链接包含当前 status ID
-    const links = article.querySelectorAll('a[href*="/status/"]');
-    for (const link of links) {
-      const href = link.getAttribute('href') || '';
-      if (href.includes(statusId)) {
-        // 找到了匹配的 article
-        // 判断是否是回复：检查是否有"回复给"的提示，或者检查页面结构
-        const replyIndicator = article.querySelector('[data-testid="tweetReplyContext"]') ||
-                               document.querySelector('[data-testid="tweetReplyContext"]');
-        const isReply = !!replyIndicator;
-        
-        console.log('[Echo-X] Found matching article for status ID:', statusId, 'isReply:', isReply);
-        return { element: article, isReply };
-      }
-    }
-  }
-  
-  // 如果没有找到匹配的 article，回退到第一个
-  console.log('[Echo-X] No matching article found for status ID:', statusId, 'using first article');
-  
-  // 判断是否是回复：检查页面中是否有"回复给"的提示
-  const replyIndicator = document.querySelector('[data-testid="tweetReplyContext"], [aria-label*="回复"]');
-  const isReply = !!replyIndicator;
-  
-  return { element: articles[0], isReply };
-}
-
-/**
- * 提取当前推文
- */
-async function extractCurrentPost(): Promise<any> {
+// 提取当前帖子
+async function extractCurrentPost(): Promise<{ success: boolean; data?: any; error?: string }> {
   console.log('[Echo-X] extractCurrentPost called');
   
   if (!isValidPostPage()) {
@@ -255,29 +166,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     extractCurrentPost().then(result => {
       sendResponse(result);
     });
-    return true;
-  }
-  
-  if (message.type === 'FILL_REPLY') {
-    try {
-      const replyBox = document.querySelector('[data-testid="tweetTextarea_0"]') as HTMLElement | null;
-      if (replyBox) {
-        replyBox.focus();
-        navigator.clipboard.writeText(message.text as string).then(() => {
-          document.execCommand('paste');
-        });
-        sendResponse({ success: true });
-      } else {
-        sendResponse({ success: false, error: 'Reply box not found' });
-      }
-    } catch (error) {
-      sendResponse({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      });
-    }
-    return true;
+    return true; // 保持消息通道打开
   }
   
   return false;
 });
+
+// 监听 URL 变化
+let currentUrl = window.location.href;
+new MutationObserver(() => {
+  const url = window.location.href;
+  if (url !== currentUrl) {
+    console.log('[Echo-X] URL changed:', currentUrl, '->', url);
+    currentUrl = url;
+  }
+}).observe(document, { subtree: true, childList: true });
+
+// 同时监听 popstate 事件
+window.addEventListener('popstate', () => {
+  console.log('[Echo-X] URL changed via popstate:', window.location.href);
+  currentUrl = window.location.href;
+});
+
+console.log('[Echo-X] Content script initialization complete');

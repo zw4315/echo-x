@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Echo-X</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 头部 -->
+    <header class="header">
+      <span id="authorInfo" style="color:var(--text-secondary);font-size:12px;"></span>
+      <div class="header-actions">
+        <button id="settingsBtn" class="icon-btn" title="设置 (Alt+S)">⚙️</button>
+        <button id="refreshBtn" class="refresh-btn" title="刷新 (Shift+点击强制重新分析)">⟳</button>
+      </div>
+    </header>
+
+    <!-- 调试面板 -->
+    <div id="debugPanel" style="background:#1a1a1a; border:1px solid #333; margin:8px; padding:10px; font-size:11px; font-family:monospace;">
+      <div style="color:#888; margin-bottom:5px;">=== 调试信息 (点击 ⚙️ 或按 Alt+S 打开设置) ===</div>
+      <div id="debugUrl" style="color:#0f0;">加载中...</div>
+      <div id="debugStatus" style="color:#ff0;"></div>
+      <div id="debugError" style="color:#f00;"></div>
+    </div>
+    
+    <!-- 提示信息 -->
+    <div id="tipPanel" style="background:#1a1a1a; border:1px solid #2f3336; margin:8px; padding:10px; font-size:12px; color:#71767b;">
+      <div>💡 <strong>提示：</strong>点击任意回复可提取该回复内容</div>
+    </div>
+
+    <!-- 空状态 -->
+    <div id="emptyState" class="empty-state">
+      <p>打开 X 帖子页面后点击刷新</p>
+    </div>
+
+    <!-- 主内容 -->
+    <main id="mainContent" class="main-content hidden">
+      <!-- 原文 -->
+      <section class="section">
+        <div class="section-header">
+          <h2>📝 原文</h2>
+          <button id="copyOriginalBtn" class="text-btn" onclick="navigator.clipboard.writeText(document.getElementById('originalText').textContent)">复制</button>
+        </div>
+        <div class="content-card">
+          <p id="originalText" class="original-text"></p>
+        </div>
+      </section>
+
+      <!-- AI 分析 -->
+      <section class="section">
+        <div class="section-header">
+          <h2>🤖 AI 分析</h2>
+          <span id="analysisLoading" style="display:none;color:var(--accent);">分析中...</span>
+        </div>
+
+        <!-- 翻译 -->
+        <div class="content-card">
+          <div class="card-title">🇨🇳 翻译</div>
+          <div id="translationText" class="translation-text"></div>
+        </div>
+
+        <!-- 分词 -->
+        <div class="content-card">
+          <div class="card-title">✂️ 分词</div>
+          <div id="tokenization" class="tokenization"></div>
+        </div>
+
+        <!-- 生词 -->
+        <div class="content-card">
+          <div class="card-title">📚 重点词汇 <span class="badge" id="vocabCount">0</span></div>
+          <div id="vocabulary" class="vocabulary-list"></div>
+        </div>
+
+        <!-- 语法 -->
+        <div class="content-card">
+          <div class="card-title">📖 语法要点</div>
+          <div id="grammar" class="grammar-list"></div>
+        </div>
+
+        <!-- 学习建议 -->
+        <div class="content-card">
+          <div class="card-title">💡 学习建议</div>
+          <div id="suggestions" class="suggestions-list"></div>
+        </div>
+      </section>
+
+      <!-- 互动区 -->
+      <section class="section reply-section">
+        <div class="reply-options">
+          <button class="reply-mode-btn active" data-mode="rewrite">✍️ Rewrite</button>
+          <button class="reply-mode-btn" data-mode="qa">💬 Q&A</button>
+        </div>
+        
+        <div class="reply-input-area">
+          <textarea 
+            id="replyInput" 
+            class="reply-input" 
+            placeholder="输入你想表达的英文内容，AI会帮你 proofread..."
+            rows="3"
+          ></textarea>
+          <div class="reply-actions">
+            <button id="generateReplyBtn" class="generate-btn">✨ 生成</button>
+          </div>
+        </div>
+        
+        <div id="generatedReplies" class="generated-replies"></div>
+        
+        <!-- Q&A 历史 -->
+        <div id="qaHistorySection" class="qa-history-section">
+          <div class="qa-history-header">
+            <span>📚 提问历史</span>
+            <span id="qaHistoryCount" class="qa-history-count"></span>
+          </div>
+          <div id="qaHistoryList" class="qa-history-list">
+            <div class="qa-history-empty">暂无提问记录</div>
+          </div>
+        </div>
+      </section>
+
+      <div class="bottom-spacer"></div>
+    </main>
+
+    <!-- 设置面板 -->
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="settings-header">
+        <button id="closeSettings" class="icon-btn">←</button>
+        <h3>设置 (Alt+S)</h3>
+      </div>
+      
+      <div class="settings-content">
+        <!-- 连接状态 -->
+        <div class="setting-item">
+          <label>本地网关状态</label>
+          <div id="connectionStatus" class="status-checking">
+            ⏳ 检测中...
+          </div>
+          <p class="setting-hint">
+            需要运行 <code>./setup.sh</code> 启动本地网关服务
+          </p>
+        </div>
+
+        <!-- 模型选择 -->
+        <div class="setting-item" id="modelSelectContainer" style="display: none;">
+          <label>选择模型</label>
+          <select id="apiModel">
+            <!-- 动态填充 -->
+          </select>
+          <p class="setting-hint" id="modelHint"></p>
+        </div>
+
+        <button id="saveSettings" class="primary-btn" style="display: none;">💾 保存设置</button>
+        
+        <!-- 缓存统计 -->
+        <div class="setting-item" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <label>📦 缓存统计</label>
+          <div id="cacheStats" style="color: var(--text-secondary); font-size: 13px; margin: 8px 0;">
+            加载中...
+          </div>
+          <p class="setting-hint">
+            相同帖子不会重复分析，节省 tokens
+          </p>
+          <button id="clearCacheBtn" class="secondary-btn" style="margin-top: 8px; font-size: 12px;">
+            🗑️ 清空缓存
+          </button>
+        </div>
+        
+        <!-- Q&A 历史统计 -->
+        <div class="setting-item" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <label>📚 Q&A 历史</label>
+          <div id="qaStats" style="color: var(--text-secondary); font-size: 13px; margin: 8px 0;">
+            加载中...
+          </div>
+          <p class="setting-hint">
+            所有提问记录都会保存，可用于复习
+          </p>
+          <button id="clearQABtn" class="secondary-btn" style="margin-top: 8px; font-size: 12px;">
+            🗑️ 清空 Q&A 历史
+          </button>
+        </div>
+        
+        <!-- 刷新连接按钮 -->
+        <button id="refreshConnectionBtn" class="secondary-btn" style="margin-top: 10px;">
+          🔄 重新检测连接
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="components/sidepanel.js"></script>
+</body>
+</html>

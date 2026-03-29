@@ -506,7 +506,7 @@ async function injectAndExtract(tabId: number, url: string) {
   try {
     updateDebug(url, '提取中...');
     
-    // 首先尝试发送消息给 content script
+    // 首先尝试发送消息给已注入的 content script
     try {
       const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_CURRENT_POST' });
       console.log('[Echo-X] Content script response:', response);
@@ -519,97 +519,33 @@ async function injectAndExtract(tabId: number, url: string) {
         return;
       }
     } catch (msgError) {
-      console.log('[Echo-X] Content script not loaded, falling back to executeScript');
+      console.log('[Echo-X] Content script not loaded, injecting now...');
     }
     
-    // 如果 content script 没有响应，使用 executeScript 作为后备
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: (pageUrl: string) => {
-        try {
-          const articles = document.querySelectorAll('article');
-          if (articles.length === 0) {
-            return { success: false, error: 'No articles found' };
-          }
-          
-          // 从 URL 提取 status ID
-          const statusMatch = pageUrl.match(/\/status\/(\d+)/);
-          const statusId = statusMatch ? statusMatch[1] : null;
-          
-          // 找到匹配的 article
-          let article = articles[0]; // 默认第一个
-          
-          if (statusId) {
-            for (const art of articles) {
-              const links = art.querySelectorAll('a[href*="/status/"]');
-              for (const link of links) {
-                if (link.getAttribute('href')?.includes(statusId)) {
-                  article = art;
-                  break;
-                }
-              }
-            }
-          }
-          
-          // 判断是否是回复：检查是否有"回复给"的提示
-          const replyIndicator = document.querySelector('[data-testid="tweetReplyContext"], [aria-label*="回复"]');
-          const isReply = !!replyIndicator;
-          
-          // 提取作者
-          const authorLink = article.querySelector('a[role="link"][href^="/"]') as HTMLAnchorElement | null;
-          const href = authorLink?.getAttribute('href') || '';
-          const handle = href.split('/').pop() || 'unknown';
-          const displayNameEl = article.querySelector('[dir="ltr"] span');
-          const displayName = displayNameEl?.textContent || handle;
-          
-          // 提取时间
-          const timeEl = article.querySelector('time');
-          const timestamp = timeEl?.getAttribute('datetime') || new Date().toISOString();
-          
-          // 提取文本
-          let text = '';
-          const textContainer = article.querySelector('[data-testid="tweetText"]');
-          if (textContainer) {
-            text = textContainer.textContent || '';
-          } else {
-            const langDiv = article.querySelector('div[lang]');
-            if (langDiv) {
-              text = langDiv.textContent || '';
-            }
-          }
-          
-          if (!text) {
-            return { success: false, error: 'No text found' };
-          }
-          
-          return {
-            success: true,
-            data: {
-              url: pageUrl,
-              isReply,
-              author: { handle, displayName },
-              timestamp,
-              text: text.trim()
-            }
-          };
-        } catch (e: any) {
-          return { success: false, error: e.message };
-        }
-      },
-      args: [url]
-    });
-    
-    console.log('[Echo-X] Execute script results:', results);
-    
-    if (results && results[0] && results[0].result) {
-      const result = results[0].result;
-      if (result.success && result.data) {
-        showPost(result.data);
+    // 注入 content script 文件
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['/content.js']
+      });
+      
+      // 等待一小段时间让脚本初始化
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // 再次发送消息
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_CURRENT_POST' });
+      console.log('[Echo-X] Content script response after injection:', response);
+      
+      if (response && response.success && response.data) {
+        showPost(response.data);
+      } else if (response && !response.success) {
+        updateDebug(url, '提取失败', response.error);
       } else {
-        updateDebug(url, '提取失败', result.error);
+        updateDebug(url, '无返回结果');
       }
-    } else {
-      updateDebug(url, '无返回结果');
+    } catch (injectError: any) {
+      console.error('[Echo-X] Failed to inject content script:', injectError);
+      updateDebug(url, '注入失败', injectError.message);
     }
   } catch (e: any) {
     updateDebug(url, '执行失败', e.message);
