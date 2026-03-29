@@ -53,35 +53,42 @@ export interface ExtractionResult {
   error?: string;
 }
 
-// AI 分析结果
+// AI 分析结果（与 analyzer.ts 保持兼容）
 export interface AnalysisResult {
-  detectedLanguage?: string;
   translation: string;
-  tokenization: TokenItem[];
-  vocabulary: VocabularyItem[];
+  difficulty: string;
+  tokens: TokenItem[];
   grammar: GrammarItem[];
-  examples: ExampleItem[];
+  vocabulary: VocabularyItem[];
+  suggestions: string[];
+  detectedLanguage?: string;
 }
 
 // 分词项
 export interface TokenItem {
   word: string;
+  pos: string;
+  lemma?: string;
   reading?: string;
-  pos?: string; // 词性
+  meaning: string;
 }
 
 // 词汇项
 export interface VocabularyItem {
   word: string;
-  reading?: string;
+  level: string;
   meaning: string;
-  level: string; // N5, N4, N3, N2, N1 或 basic, intermediate, advanced
+  example: string;
+  exampleReading?: string;
+  exampleTranslation?: string;
 }
 
 // 语法项
 export interface GrammarItem {
   pattern: string;
   explanation: string;
+  example: string;
+  exampleReading?: string;
 }
 
 // 例句

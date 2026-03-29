@@ -1,38 +1,10 @@
 // Echo-X AI 分析器 - 直接连接本地网关
 
-export interface AnalysisResult {
-  translation: string;
-  difficulty: string;
-  tokens: TokenItem[];
-  grammar: GrammarItem[];
-  vocabulary: VocabItem[];
-  suggestions: string[];
-  detectedLanguage?: string;  // ISO 639-1 语言代码
-}
+import type { AnalysisResult, TokenItem, GrammarItem, VocabularyItem } from '../types/index.js';
 
-export interface TokenItem {
-  word: string;
-  pos: string;
-  lemma?: string;
-  reading?: string;
-  meaning: string;
-}
-
-export interface GrammarItem {
-  pattern: string;
-  explanation: string;
-  example: string;
-  exampleReading?: string;  // 日语平假名注音等
-}
-
-export interface VocabItem {
-  word: string;
-  level: string;
-  meaning: string;
-  example: string;           // 例句原文
-  exampleReading?: string;   // 例句读音标注（如日语平假名、中文拼音）
-  exampleTranslation?: string; // 例句中文翻译
-}
+// 为向后兼容保留别名
+export type VocabItem = VocabularyItem;
+export type { AnalysisResult, TokenItem, GrammarItem, VocabularyItem };
 
 const GATEWAY_URL = 'http://127.0.0.1:9742/v1';
 
